@@ -56,7 +56,9 @@ Future<String?> getPhotoAndUpload({required ImageSource source}) async {
 
 Future<String?> getFileAndUpload() async {
   dynamic result = await openLoadingPopupTryCatch(() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles();
+    FilePickerResult? result =
+        // ignore: deprecated_member_use
+        await FilePicker.pickFiles(allowMultiple: false);
     if (result == null) throw ("no-file-selected".tr());
 
     Uint8List fileBytes;

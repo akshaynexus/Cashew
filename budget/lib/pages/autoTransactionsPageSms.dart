@@ -95,9 +95,11 @@ class _AutoTransactionsPageSmsState extends State<AutoTransactionsPageSms> {
   }
 
   Future<void> _importPdf() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
+      // ignore: deprecated_member_use
+      allowMultiple: false, // call sites read .files.single
     );
     final path = result?.files.single.path;
     if (path == null) return;

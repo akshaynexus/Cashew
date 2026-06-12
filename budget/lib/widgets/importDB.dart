@@ -14,7 +14,9 @@ import 'dart:io';
 
 Future<String?> importDBFileFromDevice(BuildContext context) async {
   // Avoid using a file filter: PlatformException(FilePicker, Unsupported filter....
-  FilePickerResult? result = await FilePicker.platform.pickFiles();
+  FilePickerResult? result =
+      // ignore: deprecated_member_use
+      await FilePicker.pickFiles(allowMultiple: false);
   if (result == null) {
     openSnackbar(SnackbarMessage(
       title: "error-importing".tr(),

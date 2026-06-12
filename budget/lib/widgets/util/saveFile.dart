@@ -154,7 +154,7 @@ Future<bool> saveFile({
     print("Error saving file to device: " + e.toString());
     if (customDirectory == null) {
       // Try again with selecting a custom directory
-      String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
+      String? selectedDirectory = await FilePicker.getDirectoryPath();
       if (selectedDirectory == null) {
         openSnackbar(SnackbarMessage(
           title: errorMessage.tr(),

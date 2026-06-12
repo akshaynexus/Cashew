@@ -53,9 +53,11 @@ class _ImportCSVState extends State<ImportCSV> {
 
   Future<String?> _getCSVStringFromBackupFile() async {
     dynamic csvStringOut = await openLoadingPopupTryCatch(() async {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      FilePickerResult? result = await FilePicker.pickFiles(
         allowedExtensions: ['csv'],
         type: FileType.custom,
+        // ignore: deprecated_member_use
+        allowMultiple: false,
       );
 
       if (result != null) {

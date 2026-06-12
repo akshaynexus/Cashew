@@ -36,15 +36,14 @@ dependencies:
   path_provider: ^2.1.3
   path: ^1.9.0
   math_expressions: ^3.1.0
-  share_plus: ^12.0.2
+  share_plus: ^13.0.0
   google_sign_in: ^7.2.0
   googleapis: ^16.0.0
   universal_html: ^2.2.4
   flutter_charset_detector: ^6.0.0
-  file_picker:
-    git:
-      # This fork implements https://github.com/miguelpruivo/flutter_file_picker/issues/1404
-      url: https://github.com/melWiss/flutter_file_picker.git
+  # Was a git fork (melWiss) for issue #1404, but it still used the removed v1
+  # plugin embedding (PluginRegistry.Registrar) and no longer compiles.
+  file_picker: ^12.0.0-beta.5
   auto_size_text: ^3.0.0
   shared_preferences: ^2.2.3
   csv: ^8.0.0
@@ -60,7 +59,7 @@ dependencies:
   # installed_apps: ^1.3.1
   url_launcher: ^6.2.6
   flutter_launcher_icons: ^0.14.4
-  package_info_plus: ^9.0.1
+  package_info_plus: ^10.1.0
   # mrx_charts: ^0.1.3
   transparent_image: ^2.0.0
   pausable_timer: ^3.1.0+3
@@ -79,7 +78,7 @@ dependencies:
       url: https://github.com/jameskokoska/reorderable_grid_view
   local_auth: ^3.0.1
   timer_builder: ^2.0.0
-  device_info_plus: ^12.4.0
+  device_info_plus: ^13.1.0
   flutter_lazy_indexed_stack: ^0.1.0 
   app_settings: ^7.0.0
   provider: ^6.1.2

@@ -18,6 +18,11 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+        // Vendored parser-core uses kotlin.time APIs gated behind
+        // @ExperimentalTime (e.g. SouthIndianBankParser). Opt in at the
+        // compiler level instead of patching vendored source, so the flag
+        // survives tool/sync_parser_core.sh re-syncs.
+        freeCompilerArgs += ["-opt-in=kotlin.time.ExperimentalTime"]
     }
 
     defaultConfig {
