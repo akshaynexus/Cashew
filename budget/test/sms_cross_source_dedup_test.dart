@@ -20,6 +20,8 @@ Map<String, Object?> _txn({
   String? reference,
   String type = 'EXPENSE',
   bool isFromCard = false,
+  String bankName = 'HDFC Bank',
+  String currency = 'INR',
   required int tsMillis,
 }) =>
     {
@@ -33,10 +35,10 @@ Map<String, Object?> _txn({
       'smsBody': '$merchant $amount $id',
       'sender': 'HDFCBK',
       'timestamp': tsMillis,
-      'bankName': 'HDFC Bank',
+      'bankName': bankName,
       'transactionId': id,
       'isFromCard': isFromCard,
-      'currency': 'INR',
+      'currency': currency,
       'fromAccount': null,
       'toAccount': null,
     };
@@ -52,11 +54,19 @@ Future<void> _seed() async {
     "autoAddAssociatedTitles": true,
     "sharedBudgets": false,
     "selectedWalletPk": "fallback",
+    "cachedCurrencyExchange": {
+      "aed": 3.67,
+      "inr": 83.0,
+      "thb": 36.0,
+      "usd": 1.0,
+    },
+    "customCurrencyAmounts": {},
   };
   database = FinanceDatabase(NativeDatabase.memory());
   for (final w in [
-    ["fallback", null, null],
-    ["hdfc", "HDFC Bank", "1234"],
+    ["fallback", null, null, "inr"],
+    ["hdfc", "HDFC Bank", "1234", "inr"],
+    ["fab", "First Abu Dhabi Bank", "7777", "aed"],
   ]) {
     await database.createOrUpdateWallet(
       insert: false,
@@ -68,7 +78,7 @@ Future<void> _seed() async {
         dateCreated: DateTime.now(),
         dateTimeModified: null,
         order: 0,
-        currency: "inr",
+        currency: w[3],
         decimals: 2,
         bankName: w[1],
         accountLast4: w[2],
@@ -202,6 +212,120 @@ void main() {
     expect(a.outcome, CaptureOutcome.inserted);
     expect(b.outcome, CaptureOutcome.inserted);
     expect(_parsedCount(await database.allTransactions), 2);
+  });
+
+  test('unmapped income stays positive instead of using expense category sign',
+      () async {
+    await _seed();
+    final t = DateTime(2026, 1, 1, 10).millisecondsSinceEpoch;
+
+    final result = await captureParsedTransaction(ParsedTransaction.fromMap(
+      _txn(
+        id: "refund-income",
+        amount: "500.00",
+        merchant: "Refund",
+        last4: "1234",
+        type: "INCOME",
+        tsMillis: t,
+      ),
+    ));
+
+    expect(result.outcome, CaptureOutcome.inserted);
+
+    final inserted = await database.getTransactionByHash("refund-income");
+    expect(inserted, isNotNull);
+    expect(inserted!.amount, 500);
+    expect(inserted.income, isTrue);
+    expect(inserted.walletFk, "hdfc");
+
+    final hdfcTotal =
+        await database.watchTotalOfWalletNoConversion("hdfc").first;
+    expect(hdfcTotal, 500);
+  });
+
+  test('balance update messages are not inserted as ledger transactions',
+      () async {
+    await _seed();
+    final t = DateTime(2026, 1, 1, 10).millisecondsSinceEpoch;
+
+    final result = await captureParsedTransaction(ParsedTransaction.fromMap(
+      _txn(
+        id: "balance-update",
+        amount: "12000.00",
+        merchant: "Available balance",
+        last4: "1234",
+        type: "BALANCE_UPDATE",
+        tsMillis: t,
+      ),
+    ));
+
+    expect(result.outcome, CaptureOutcome.unmapped);
+    expect(await database.getTransactionByHash("balance-update"), isNull);
+    expect(_parsedCount(await database.allTransactions), 0);
+  });
+
+  test(
+      'foreign-currency card spend keeps original currency and books wallet amount',
+      () async {
+    await _seed();
+    final t = DateTime(2026, 1, 1, 10).millisecondsSinceEpoch;
+
+    final result = await captureParsedTransaction(ParsedTransaction.fromMap(
+      _txn(
+        id: "fab-thb",
+        amount: "360.00",
+        merchant: "Bangkok Hotel",
+        last4: "7777",
+        bankName: "First Abu Dhabi Bank",
+        currency: "THB",
+        isFromCard: true,
+        tsMillis: t,
+      ),
+    ));
+
+    expect(result.outcome, CaptureOutcome.inserted);
+
+    final inserted = await database.getTransactionByHash("fab-thb");
+    expect(inserted, isNotNull);
+    expect(inserted!.walletFk, "fab");
+    expect(inserted.originalAmount, -360);
+    expect(inserted.originalCurrency, "thb");
+    expect(inserted.originalToWalletExchangeRate, closeTo(3.67 / 36.0, 0.0001));
+    expect(inserted.amount, closeTo(-36.7, 0.001));
+
+    final fabTotal = await database.watchTotalOfWalletNoConversion("fab").first;
+    expect(fabTotal, closeTo(-36.7, 0.001));
+  });
+
+  test('unseen FAB foreign-currency card creates AED wallet', () async {
+    await _seed();
+    final t = DateTime(2026, 1, 1, 10).millisecondsSinceEpoch;
+
+    final result = await captureParsedTransaction(ParsedTransaction.fromMap(
+      _txn(
+        id: "fab-usd-new-card",
+        amount: "10.00",
+        merchant: "US Store",
+        last4: "8888",
+        bankName: "First Abu Dhabi Bank",
+        currency: "USD",
+        isFromCard: true,
+        tsMillis: t,
+      ),
+    ));
+
+    expect(result.outcome, CaptureOutcome.inserted);
+
+    final inserted = await database.getTransactionByHash("fab-usd-new-card");
+    expect(inserted, isNotNull);
+    expect(inserted!.originalAmount, -10);
+    expect(inserted.originalCurrency, "usd");
+    expect(inserted.amount, closeTo(-36.7, 0.001));
+
+    final wallet = await database.getWalletInstance(inserted.walletFk);
+    expect(wallet.bankName, "First Abu Dhabi Bank");
+    expect(wallet.accountLast4, "8888");
+    expect(wallet.currency, "aed");
   });
 
   test('unseen account last4 creates a dedicated wallet instead of fallback',

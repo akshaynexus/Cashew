@@ -27,7 +27,7 @@ import 'package:budget/pages/activityPage.dart';
 import 'package:flutter/material.dart' show RangeValues;
 part 'tables.g.dart';
 
-int schemaVersionGlobal = 48;
+int schemaVersionGlobal = 49;
 
 // To update and migrate the database, check the README
 
@@ -285,6 +285,9 @@ class Transactions extends Table {
       .nullable()();
   TextColumn get name => text().withLength(max: NAME_LIMIT)();
   RealColumn get amount => real()();
+  RealColumn get originalAmount => real().nullable()();
+  TextColumn get originalCurrency => text().nullable()();
+  RealColumn get originalToWalletExchangeRate => real().nullable()();
   TextColumn get note => text().withLength(max: NOTE_LIMIT)();
   TextColumn get categoryFk => text().references(Categories, #categoryPk)();
   TextColumn get subCategoryFk => text()
@@ -1196,8 +1199,8 @@ class FinanceDatabase extends _$FinanceDatabase {
             from46To47: (m, schema) async {
               print("46 to 47");
               try {
-                await m.addColumn(schema.transactions,
-                    schema.transactions.transactionHash);
+                await m.addColumn(
+                    schema.transactions, schema.transactions.transactionHash);
               } catch (e) {
                 print(
                     "Migration Error: Error creating column transactions.transactionHash " +
@@ -1220,19 +1223,45 @@ class FinanceDatabase extends _$FinanceDatabase {
               try {
                 await m.createTable(schema.unrecognizedSms);
               } catch (e) {
-                print(
-                    "Migration Error: Error creating table UnrecognizedSms " +
-                        e.toString());
+                print("Migration Error: Error creating table UnrecognizedSms " +
+                    e.toString());
               }
             },
             from47To48: (m, schema) async {
               print("47 to 48");
               try {
-                await m.addColumn(schema.transactions,
-                    schema.transactions.parsedReference);
+                await m.addColumn(
+                    schema.transactions, schema.transactions.parsedReference);
               } catch (e) {
                 print(
                     "Migration Error: Error creating column transactions.parsedReference " +
+                        e.toString());
+              }
+            },
+            from48To49: (m, schema) async {
+              print("48 to 49");
+              try {
+                await m.addColumn(
+                    schema.transactions, schema.transactions.originalAmount);
+              } catch (e) {
+                print(
+                    "Migration Error: Error creating column transactions.originalAmount " +
+                        e.toString());
+              }
+              try {
+                await m.addColumn(
+                    schema.transactions, schema.transactions.originalCurrency);
+              } catch (e) {
+                print(
+                    "Migration Error: Error creating column transactions.originalCurrency " +
+                        e.toString());
+              }
+              try {
+                await m.addColumn(schema.transactions,
+                    schema.transactions.originalToWalletExchangeRate);
+              } catch (e) {
+                print(
+                    "Migration Error: Error creating column transactions.originalToWalletExchangeRate " +
                         e.toString());
               }
             },

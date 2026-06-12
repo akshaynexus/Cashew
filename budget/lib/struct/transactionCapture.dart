@@ -11,6 +11,7 @@
 import 'package:budget/colors.dart';
 import 'package:budget/database/tables.dart';
 import 'package:budget/pages/addTransactionPage.dart';
+import 'package:budget/struct/currencyFunctions.dart';
 import 'package:budget/struct/databaseGlobal.dart';
 import 'package:budget/struct/settings.dart';
 import 'package:cashew_pennywise/src/capture/transaction_enricher.dart';
@@ -72,19 +73,14 @@ bool _last4Compatible(String? existingLast4, String? parsedLast4) {
   return existing.isEmpty || parsed.isEmpty || existing == parsed;
 }
 
-bool _currencyCompatible(TransactionWallet? wallet, ParsedTransaction parsed) {
-  final walletCurrency = wallet?.currency;
-  return walletCurrency == null ||
-      walletCurrency.isEmpty ||
-      walletCurrency.toLowerCase() == parsed.currency.toLowerCase();
-}
-
 Future<bool> _transactionMatchesParsed(
   Transaction existing,
   ParsedTransaction parsed, {
   required Duration window,
 }) async {
-  if ((existing.amount.abs() - parsed.signedAmount.abs()).abs() > 0.001) {
+  final existingAmount =
+      existing.originalAmount?.abs() ?? existing.amount.abs();
+  if ((existingAmount - parsed.signedAmount.abs()).abs() > 0.001) {
     return false;
   }
   if (!_typesCompatible(existing, parsed)) return false;
@@ -96,7 +92,10 @@ Future<bool> _transactionMatchesParsed(
   if (!_last4Compatible(wallet?.accountLast4, parsed.accountLast4)) {
     return false;
   }
-  if (!_currencyCompatible(wallet, parsed)) return false;
+  if ((existing.originalCurrency ?? wallet?.currency ?? '').toLowerCase() !=
+      parsed.currency.toLowerCase()) {
+    return false;
+  }
   return true;
 }
 
@@ -191,7 +190,7 @@ Future<TransactionWallet?> _createWalletForParsedAccount(
       dateCreated: DateTime.now(),
       dateTimeModified: null,
       order: numberOfWallets,
-      currency: parsed.currency,
+      currency: _accountCurrencyForParsedAccount(parsed),
       decimals: 2,
       homePageWidgetDisplay: defaultWalletHomePageWidgetDisplay,
       bankName: bankName,
@@ -199,6 +198,55 @@ Future<TransactionWallet?> _createWalletForParsedAccount(
     ),
   );
   return database.getWalletFromRowId(rowId);
+}
+
+String _normalizedCurrency(String? currency) => (currency ?? '').toLowerCase();
+
+bool _looksLikeUaeBank(String bankName) {
+  final normalized = bankName.toLowerCase();
+  return normalized.contains('abu dhabi') ||
+      normalized.contains('fab') ||
+      normalized.contains('adcb') ||
+      normalized.contains('mashreq') ||
+      normalized.contains('emirates nbd') ||
+      normalized.contains('liv bank') ||
+      normalized.contains('dubai');
+}
+
+String _accountCurrencyForParsedAccount(ParsedTransaction parsed) {
+  if (_looksLikeUaeBank(parsed.bankName)) return 'aed';
+  return _normalizedCurrency(parsed.currency);
+}
+
+({
+  double amount,
+  double? originalAmount,
+  String? originalCurrency,
+  double? rate
+}) _ledgerAmountForWallet(
+  ParsedTransaction parsed,
+  TransactionWallet wallet,
+) {
+  final parsedCurrency = _normalizedCurrency(parsed.currency);
+  final walletCurrency = _normalizedCurrency(wallet.currency);
+  if (parsedCurrency.isEmpty ||
+      walletCurrency.isEmpty ||
+      parsedCurrency == walletCurrency) {
+    return (
+      amount: parsed.signedAmount,
+      originalAmount: null,
+      originalCurrency: null,
+      rate: null,
+    );
+  }
+
+  final rate = amountRatioFromToCurrency(parsedCurrency, walletCurrency) ?? 1;
+  return (
+    amount: parsed.signedAmount * rate,
+    originalAmount: parsed.signedAmount,
+    originalCurrency: parsedCurrency,
+    rate: rate,
+  );
 }
 
 /// Matches a 12-digit UPI RRN — the reference key used for reference-based
@@ -225,10 +273,10 @@ Future<EnrichCandidate> _existingCandidate(
 ) async {
   final wallet = await database.getWalletInstanceOrNull(existing.walletFk);
   return EnrichCandidate(
-    amount: existing.amount.abs(),
-    // Cashew stores a single per-wallet currency. The reference/account match
-    // already anchors identity, so use the incoming currency for comparison.
-    currency: parsed.currency,
+    amount: existing.originalAmount?.abs() ?? existing.amount.abs(),
+    // Prefer the original parsed currency for foreign-card transactions; older
+    // rows fall back to the wallet currency.
+    currency: existing.originalCurrency ?? wallet?.currency ?? parsed.currency,
     type: existing.income
         ? ParsedTransactionType.income
         : ParsedTransactionType.expense,
@@ -331,6 +379,10 @@ Future<bool> _tryWindowEnrichment(ParsedTransaction parsed) async {
 Future<TransactionCaptureResult> captureParsedTransaction(
   ParsedTransaction parsed,
 ) async {
+  if (parsed.type == ParsedTransactionType.balanceUpdate) {
+    return const TransactionCaptureResult(outcome: CaptureOutcome.unmapped);
+  }
+
   // 1. Dedup by stable hash.
   if (parsed.transactionId.isNotEmpty) {
     final existing = await database.getTransactionByHash(parsed.transactionId);
@@ -402,14 +454,12 @@ Future<TransactionCaptureResult> captureParsedTransaction(
     return const TransactionCaptureResult(outcome: CaptureOutcome.unmapped);
   }
 
-  // 4. Build + insert the transaction.
-  //    Sign convention mirrors autoTransactionsPageEmail: amount magnitude is
-  //    signed by the chosen category's income flag. parsed.signedAmount already
-  //    encodes the parser's direction; we honor the category flag for the sign
-  //    (so a category marked income makes this an inflow) but keep the parser's
-  //    magnitude.
-  final double magnitude = parsed.signedAmount.abs();
-  final double amount = magnitude * (category.income ? 1 : -1);
+  // 4. Build + insert the transaction. The parser has already classified
+  //    direction, so keep its sign instead of letting a fallback category turn
+  //    credits/refunds into expenses.
+  final ledgerAmount = _ledgerAmountForWallet(parsed, wallet);
+  final double amount = ledgerAmount.amount;
+  final bool income = amount >= 0;
 
   final String name =
       (merchant != null && merchant.isNotEmpty) ? merchant : parsed.bankName;
@@ -420,12 +470,15 @@ Future<TransactionCaptureResult> captureParsedTransaction(
       transactionPk: "-1",
       name: name,
       amount: amount,
+      originalAmount: ledgerAmount.originalAmount,
+      originalCurrency: ledgerAmount.originalCurrency,
+      originalToWalletExchangeRate: ledgerAmount.rate,
       note: "",
       categoryFk: category.categoryPk,
       walletFk: wallet.walletPk,
       dateCreated: parsed.timestamp,
       dateTimeModified: null,
-      income: category.income,
+      income: income,
       paid: true,
       skipPaid: false,
       methodAdded: MethodAdded.parsed,

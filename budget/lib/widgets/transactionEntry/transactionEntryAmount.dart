@@ -24,6 +24,11 @@ class TransactionEntryAmount extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final originalAmount = transaction.originalAmount;
+    final originalCurrency = transaction.originalCurrency;
+    final walletCurrency = Provider.of<AllWallets>(context)
+        .indexedByPk[transaction.walletFk]
+        ?.currency;
     double count = transaction.amount.abs() *
         (amountRatioToPrimaryCurrencyGivenPk(
             Provider.of<AllWallets>(context), transaction.walletFk));
@@ -81,14 +86,12 @@ class TransactionEntryAmount extends StatelessWidget {
                   key: ValueKey(1),
                   text: convertToMoney(
                     Provider.of<AllWallets>(context),
-                    transaction.amount.abs(),
+                    originalAmount?.abs() ?? transaction.amount.abs(),
                     decimals: Provider.of<AllWallets>(context)
                             .indexedByPk[transaction.walletFk]
                             ?.decimals ??
                         2,
-                    currencyKey: Provider.of<AllWallets>(context)
-                        .indexedByPk[transaction.walletFk]
-                        ?.currency,
+                    currencyKey: originalCurrency ?? walletCurrency,
                     addCurrencyName: true,
                   ),
                   fontSize: 12,

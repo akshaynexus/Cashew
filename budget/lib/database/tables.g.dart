@@ -2053,6 +2053,25 @@ class $TransactionsTable extends Transactions
   late final GeneratedColumn<double> amount = GeneratedColumn<double>(
       'amount', aliasedName, false,
       type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _originalAmountMeta =
+      const VerificationMeta('originalAmount');
+  @override
+  late final GeneratedColumn<double> originalAmount = GeneratedColumn<double>(
+      'original_amount', aliasedName, true,
+      type: DriftSqlType.double, requiredDuringInsert: false);
+  static const VerificationMeta _originalCurrencyMeta =
+      const VerificationMeta('originalCurrency');
+  @override
+  late final GeneratedColumn<String> originalCurrency = GeneratedColumn<String>(
+      'original_currency', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _originalToWalletExchangeRateMeta =
+      const VerificationMeta('originalToWalletExchangeRate');
+  @override
+  late final GeneratedColumn<double> originalToWalletExchangeRate =
+      GeneratedColumn<double>(
+          'original_to_wallet_exchange_rate', aliasedName, true,
+          type: DriftSqlType.double, requiredDuringInsert: false);
   static const VerificationMeta _noteMeta = const VerificationMeta('note');
   @override
   late final GeneratedColumn<String> note = GeneratedColumn<String>(
@@ -2279,6 +2298,9 @@ class $TransactionsTable extends Transactions
         pairedTransactionFk,
         name,
         amount,
+        originalAmount,
+        originalCurrency,
+        originalToWalletExchangeRate,
         note,
         categoryFk,
         subCategoryFk,
@@ -2342,6 +2364,25 @@ class $TransactionsTable extends Transactions
           amount.isAcceptableOrUnknown(data['amount']!, _amountMeta));
     } else if (isInserting) {
       context.missing(_amountMeta);
+    }
+    if (data.containsKey('original_amount')) {
+      context.handle(
+          _originalAmountMeta,
+          originalAmount.isAcceptableOrUnknown(
+              data['original_amount']!, _originalAmountMeta));
+    }
+    if (data.containsKey('original_currency')) {
+      context.handle(
+          _originalCurrencyMeta,
+          originalCurrency.isAcceptableOrUnknown(
+              data['original_currency']!, _originalCurrencyMeta));
+    }
+    if (data.containsKey('original_to_wallet_exchange_rate')) {
+      context.handle(
+          _originalToWalletExchangeRateMeta,
+          originalToWalletExchangeRate.isAcceptableOrUnknown(
+              data['original_to_wallet_exchange_rate']!,
+              _originalToWalletExchangeRateMeta));
     }
     if (data.containsKey('note')) {
       context.handle(
@@ -2498,6 +2539,13 @@ class $TransactionsTable extends Transactions
           .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
       amount: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}amount'])!,
+      originalAmount: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}original_amount']),
+      originalCurrency: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}original_currency']),
+      originalToWalletExchangeRate: attachedDatabase.typeMapping.read(
+          DriftSqlType.double,
+          data['${effectivePrefix}original_to_wallet_exchange_rate']),
       note: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}note'])!,
       categoryFk: attachedDatabase.typeMapping
@@ -2604,6 +2652,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
   final String? pairedTransactionFk;
   final String name;
   final double amount;
+  final double? originalAmount;
+  final String? originalCurrency;
+  final double? originalToWalletExchangeRate;
   final String note;
   final String categoryFk;
   final String? subCategoryFk;
@@ -2638,6 +2689,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       this.pairedTransactionFk,
       required this.name,
       required this.amount,
+      this.originalAmount,
+      this.originalCurrency,
+      this.originalToWalletExchangeRate,
       required this.note,
       required this.categoryFk,
       this.subCategoryFk,
@@ -2676,6 +2730,16 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     }
     map['name'] = Variable<String>(name);
     map['amount'] = Variable<double>(amount);
+    if (!nullToAbsent || originalAmount != null) {
+      map['original_amount'] = Variable<double>(originalAmount);
+    }
+    if (!nullToAbsent || originalCurrency != null) {
+      map['original_currency'] = Variable<String>(originalCurrency);
+    }
+    if (!nullToAbsent || originalToWalletExchangeRate != null) {
+      map['original_to_wallet_exchange_rate'] =
+          Variable<double>(originalToWalletExchangeRate);
+    }
     map['note'] = Variable<String>(note);
     map['category_fk'] = Variable<String>(categoryFk);
     if (!nullToAbsent || subCategoryFk != null) {
@@ -2770,6 +2834,16 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           : Value(pairedTransactionFk),
       name: Value(name),
       amount: Value(amount),
+      originalAmount: originalAmount == null && nullToAbsent
+          ? const Value.absent()
+          : Value(originalAmount),
+      originalCurrency: originalCurrency == null && nullToAbsent
+          ? const Value.absent()
+          : Value(originalCurrency),
+      originalToWalletExchangeRate:
+          originalToWalletExchangeRate == null && nullToAbsent
+              ? const Value.absent()
+              : Value(originalToWalletExchangeRate),
       note: Value(note),
       categoryFk: Value(categoryFk),
       subCategoryFk: subCategoryFk == null && nullToAbsent
@@ -2856,6 +2930,10 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           serializer.fromJson<String?>(json['pairedTransactionFk']),
       name: serializer.fromJson<String>(json['name']),
       amount: serializer.fromJson<double>(json['amount']),
+      originalAmount: serializer.fromJson<double?>(json['originalAmount']),
+      originalCurrency: serializer.fromJson<String?>(json['originalCurrency']),
+      originalToWalletExchangeRate:
+          serializer.fromJson<double?>(json['originalToWalletExchangeRate']),
       note: serializer.fromJson<String>(json['note']),
       categoryFk: serializer.fromJson<String>(json['categoryFk']),
       subCategoryFk: serializer.fromJson<String?>(json['subCategoryFk']),
@@ -2907,6 +2985,10 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       'pairedTransactionFk': serializer.toJson<String?>(pairedTransactionFk),
       'name': serializer.toJson<String>(name),
       'amount': serializer.toJson<double>(amount),
+      'originalAmount': serializer.toJson<double?>(originalAmount),
+      'originalCurrency': serializer.toJson<String?>(originalCurrency),
+      'originalToWalletExchangeRate':
+          serializer.toJson<double?>(originalToWalletExchangeRate),
       'note': serializer.toJson<String>(note),
       'categoryFk': serializer.toJson<String>(categoryFk),
       'subCategoryFk': serializer.toJson<String?>(subCategoryFk),
@@ -2953,6 +3035,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           Value<String?> pairedTransactionFk = const Value.absent(),
           String? name,
           double? amount,
+          Value<double?> originalAmount = const Value.absent(),
+          Value<String?> originalCurrency = const Value.absent(),
+          Value<double?> originalToWalletExchangeRate = const Value.absent(),
           String? note,
           String? categoryFk,
           Value<String?> subCategoryFk = const Value.absent(),
@@ -2989,6 +3074,14 @@ class Transaction extends DataClass implements Insertable<Transaction> {
             : this.pairedTransactionFk,
         name: name ?? this.name,
         amount: amount ?? this.amount,
+        originalAmount:
+            originalAmount.present ? originalAmount.value : this.originalAmount,
+        originalCurrency: originalCurrency.present
+            ? originalCurrency.value
+            : this.originalCurrency,
+        originalToWalletExchangeRate: originalToWalletExchangeRate.present
+            ? originalToWalletExchangeRate.value
+            : this.originalToWalletExchangeRate,
         note: note ?? this.note,
         categoryFk: categoryFk ?? this.categoryFk,
         subCategoryFk:
@@ -3058,6 +3151,15 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           : this.pairedTransactionFk,
       name: data.name.present ? data.name.value : this.name,
       amount: data.amount.present ? data.amount.value : this.amount,
+      originalAmount: data.originalAmount.present
+          ? data.originalAmount.value
+          : this.originalAmount,
+      originalCurrency: data.originalCurrency.present
+          ? data.originalCurrency.value
+          : this.originalCurrency,
+      originalToWalletExchangeRate: data.originalToWalletExchangeRate.present
+          ? data.originalToWalletExchangeRate.value
+          : this.originalToWalletExchangeRate,
       note: data.note.present ? data.note.value : this.note,
       categoryFk:
           data.categoryFk.present ? data.categoryFk.value : this.categoryFk,
@@ -3137,6 +3239,10 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           ..write('pairedTransactionFk: $pairedTransactionFk, ')
           ..write('name: $name, ')
           ..write('amount: $amount, ')
+          ..write('originalAmount: $originalAmount, ')
+          ..write('originalCurrency: $originalCurrency, ')
+          ..write(
+              'originalToWalletExchangeRate: $originalToWalletExchangeRate, ')
           ..write('note: $note, ')
           ..write('categoryFk: $categoryFk, ')
           ..write('subCategoryFk: $subCategoryFk, ')
@@ -3179,6 +3285,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
         pairedTransactionFk,
         name,
         amount,
+        originalAmount,
+        originalCurrency,
+        originalToWalletExchangeRate,
         note,
         categoryFk,
         subCategoryFk,
@@ -3217,6 +3326,10 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           other.pairedTransactionFk == this.pairedTransactionFk &&
           other.name == this.name &&
           other.amount == this.amount &&
+          other.originalAmount == this.originalAmount &&
+          other.originalCurrency == this.originalCurrency &&
+          other.originalToWalletExchangeRate ==
+              this.originalToWalletExchangeRate &&
           other.note == this.note &&
           other.categoryFk == this.categoryFk &&
           other.subCategoryFk == this.subCategoryFk &&
@@ -3256,6 +3369,9 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
   final Value<String?> pairedTransactionFk;
   final Value<String> name;
   final Value<double> amount;
+  final Value<double?> originalAmount;
+  final Value<String?> originalCurrency;
+  final Value<double?> originalToWalletExchangeRate;
   final Value<String> note;
   final Value<String> categoryFk;
   final Value<String?> subCategoryFk;
@@ -3291,6 +3407,9 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     this.pairedTransactionFk = const Value.absent(),
     this.name = const Value.absent(),
     this.amount = const Value.absent(),
+    this.originalAmount = const Value.absent(),
+    this.originalCurrency = const Value.absent(),
+    this.originalToWalletExchangeRate = const Value.absent(),
     this.note = const Value.absent(),
     this.categoryFk = const Value.absent(),
     this.subCategoryFk = const Value.absent(),
@@ -3327,6 +3446,9 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     this.pairedTransactionFk = const Value.absent(),
     required String name,
     required double amount,
+    this.originalAmount = const Value.absent(),
+    this.originalCurrency = const Value.absent(),
+    this.originalToWalletExchangeRate = const Value.absent(),
     required String note,
     required String categoryFk,
     this.subCategoryFk = const Value.absent(),
@@ -3366,6 +3488,9 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     Expression<String>? pairedTransactionFk,
     Expression<String>? name,
     Expression<double>? amount,
+    Expression<double>? originalAmount,
+    Expression<String>? originalCurrency,
+    Expression<double>? originalToWalletExchangeRate,
     Expression<String>? note,
     Expression<String>? categoryFk,
     Expression<String>? subCategoryFk,
@@ -3403,6 +3528,10 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
         'paired_transaction_fk': pairedTransactionFk,
       if (name != null) 'name': name,
       if (amount != null) 'amount': amount,
+      if (originalAmount != null) 'original_amount': originalAmount,
+      if (originalCurrency != null) 'original_currency': originalCurrency,
+      if (originalToWalletExchangeRate != null)
+        'original_to_wallet_exchange_rate': originalToWalletExchangeRate,
       if (note != null) 'note': note,
       if (categoryFk != null) 'category_fk': categoryFk,
       if (subCategoryFk != null) 'sub_category_fk': subCategoryFk,
@@ -3446,6 +3575,9 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
       Value<String?>? pairedTransactionFk,
       Value<String>? name,
       Value<double>? amount,
+      Value<double?>? originalAmount,
+      Value<String?>? originalCurrency,
+      Value<double?>? originalToWalletExchangeRate,
       Value<String>? note,
       Value<String>? categoryFk,
       Value<String?>? subCategoryFk,
@@ -3481,6 +3613,10 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
       pairedTransactionFk: pairedTransactionFk ?? this.pairedTransactionFk,
       name: name ?? this.name,
       amount: amount ?? this.amount,
+      originalAmount: originalAmount ?? this.originalAmount,
+      originalCurrency: originalCurrency ?? this.originalCurrency,
+      originalToWalletExchangeRate:
+          originalToWalletExchangeRate ?? this.originalToWalletExchangeRate,
       note: note ?? this.note,
       categoryFk: categoryFk ?? this.categoryFk,
       subCategoryFk: subCategoryFk ?? this.subCategoryFk,
@@ -3534,6 +3670,16 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     }
     if (amount.present) {
       map['amount'] = Variable<double>(amount.value);
+    }
+    if (originalAmount.present) {
+      map['original_amount'] = Variable<double>(originalAmount.value);
+    }
+    if (originalCurrency.present) {
+      map['original_currency'] = Variable<String>(originalCurrency.value);
+    }
+    if (originalToWalletExchangeRate.present) {
+      map['original_to_wallet_exchange_rate'] =
+          Variable<double>(originalToWalletExchangeRate.value);
     }
     if (note.present) {
       map['note'] = Variable<String>(note.value);
@@ -3646,6 +3792,10 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
           ..write('pairedTransactionFk: $pairedTransactionFk, ')
           ..write('name: $name, ')
           ..write('amount: $amount, ')
+          ..write('originalAmount: $originalAmount, ')
+          ..write('originalCurrency: $originalCurrency, ')
+          ..write(
+              'originalToWalletExchangeRate: $originalToWalletExchangeRate, ')
           ..write('note: $note, ')
           ..write('categoryFk: $categoryFk, ')
           ..write('subCategoryFk: $subCategoryFk, ')
@@ -9151,6 +9301,9 @@ typedef $$TransactionsTableCreateCompanionBuilder = TransactionsCompanion
   Value<String?> pairedTransactionFk,
   required String name,
   required double amount,
+  Value<double?> originalAmount,
+  Value<String?> originalCurrency,
+  Value<double?> originalToWalletExchangeRate,
   required String note,
   required String categoryFk,
   Value<String?> subCategoryFk,
@@ -9188,6 +9341,9 @@ typedef $$TransactionsTableUpdateCompanionBuilder = TransactionsCompanion
   Value<String?> pairedTransactionFk,
   Value<String> name,
   Value<double> amount,
+  Value<double?> originalAmount,
+  Value<String?> originalCurrency,
+  Value<double?> originalToWalletExchangeRate,
   Value<String> note,
   Value<String> categoryFk,
   Value<String?> subCategoryFk,
@@ -9331,6 +9487,18 @@ class $$TransactionsTableFilterComposer
 
   ColumnFilters<double> get amount => $composableBuilder(
       column: $table.amount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get originalAmount => $composableBuilder(
+      column: $table.originalAmount,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get originalCurrency => $composableBuilder(
+      column: $table.originalCurrency,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get originalToWalletExchangeRate => $composableBuilder(
+      column: $table.originalToWalletExchangeRate,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get note => $composableBuilder(
       column: $table.note, builder: (column) => ColumnFilters(column));
@@ -9565,6 +9733,19 @@ class $$TransactionsTableOrderingComposer
   ColumnOrderings<double> get amount => $composableBuilder(
       column: $table.amount, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<double> get originalAmount => $composableBuilder(
+      column: $table.originalAmount,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get originalCurrency => $composableBuilder(
+      column: $table.originalCurrency,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get originalToWalletExchangeRate =>
+      $composableBuilder(
+          column: $table.originalToWalletExchangeRate,
+          builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get note => $composableBuilder(
       column: $table.note, builder: (column) => ColumnOrderings(column));
 
@@ -9793,6 +9974,17 @@ class $$TransactionsTableAnnotationComposer
 
   GeneratedColumn<double> get amount =>
       $composableBuilder(column: $table.amount, builder: (column) => column);
+
+  GeneratedColumn<double> get originalAmount => $composableBuilder(
+      column: $table.originalAmount, builder: (column) => column);
+
+  GeneratedColumn<String> get originalCurrency => $composableBuilder(
+      column: $table.originalCurrency, builder: (column) => column);
+
+  GeneratedColumn<double> get originalToWalletExchangeRate =>
+      $composableBuilder(
+          column: $table.originalToWalletExchangeRate,
+          builder: (column) => column);
 
   GeneratedColumn<String> get note =>
       $composableBuilder(column: $table.note, builder: (column) => column);
@@ -10031,6 +10223,9 @@ class $$TransactionsTableTableManager extends RootTableManager<
             Value<String?> pairedTransactionFk = const Value.absent(),
             Value<String> name = const Value.absent(),
             Value<double> amount = const Value.absent(),
+            Value<double?> originalAmount = const Value.absent(),
+            Value<String?> originalCurrency = const Value.absent(),
+            Value<double?> originalToWalletExchangeRate = const Value.absent(),
             Value<String> note = const Value.absent(),
             Value<String> categoryFk = const Value.absent(),
             Value<String?> subCategoryFk = const Value.absent(),
@@ -10067,6 +10262,9 @@ class $$TransactionsTableTableManager extends RootTableManager<
             pairedTransactionFk: pairedTransactionFk,
             name: name,
             amount: amount,
+            originalAmount: originalAmount,
+            originalCurrency: originalCurrency,
+            originalToWalletExchangeRate: originalToWalletExchangeRate,
             note: note,
             categoryFk: categoryFk,
             subCategoryFk: subCategoryFk,
@@ -10103,6 +10301,9 @@ class $$TransactionsTableTableManager extends RootTableManager<
             Value<String?> pairedTransactionFk = const Value.absent(),
             required String name,
             required double amount,
+            Value<double?> originalAmount = const Value.absent(),
+            Value<String?> originalCurrency = const Value.absent(),
+            Value<double?> originalToWalletExchangeRate = const Value.absent(),
             required String note,
             required String categoryFk,
             Value<String?> subCategoryFk = const Value.absent(),
@@ -10139,6 +10340,9 @@ class $$TransactionsTableTableManager extends RootTableManager<
             pairedTransactionFk: pairedTransactionFk,
             name: name,
             amount: amount,
+            originalAmount: originalAmount,
+            originalCurrency: originalCurrency,
+            originalToWalletExchangeRate: originalToWalletExchangeRate,
             note: note,
             categoryFk: categoryFk,
             subCategoryFk: subCategoryFk,
