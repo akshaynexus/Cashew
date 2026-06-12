@@ -11,12 +11,12 @@ import android.provider.Telephony
  *
  * Pagination contract (consumed by the Dart `SmsInbox`):
  *  - [sinceEpochMillis]  : lower bound (inclusive) on DATE. null/0 = all time.
+ *  - [sinceIdExclusive]  : tie-breaker for rows with DATE == sinceEpochMillis.
  *  - [beforeEpochMillis] : upper bound (exclusive) on DATE. null = no upper bound.
  *  - [limit]             : max rows to return. null = unbounded.
  *
- * Rows are returned ordered by DATE ASC so the Dart side can page forward by
- * advancing [sinceEpochMillis] past the last returned timestamp, OR page
- * backward via [beforeEpochMillis]. The default scanner pages forward.
+ * Rows are returned ordered by DATE ASC, _ID ASC so the Dart side can page
+ * forward without dropping same-millisecond rows at a page boundary.
  */
 internal object SmsInboxReader {
 
@@ -28,12 +28,13 @@ internal object SmsInboxReader {
     )
 
     /**
-     * @return list of `{sender, body, timestamp}` maps (codec-safe primitives),
-     *         ordered by timestamp ascending.
+     * @return list of `{id, sender, body, timestamp}` maps (codec-safe
+     *         primitives), ordered by timestamp ascending.
      */
     fun read(
         context: Context,
         sinceEpochMillis: Long?,
+        sinceIdExclusive: Long?,
         beforeEpochMillis: Long?,
         limit: Int?,
     ): List<Map<String, Any?>> {
@@ -41,8 +42,15 @@ internal object SmsInboxReader {
         val args = mutableListOf(Telephony.Sms.MESSAGE_TYPE_INBOX.toString())
 
         if (sinceEpochMillis != null && sinceEpochMillis > 0L) {
-            selectionParts += "${Telephony.Sms.DATE} >= ?"
-            args += sinceEpochMillis.toString()
+            if (sinceIdExclusive != null) {
+                selectionParts += "(${Telephony.Sms.DATE} > ? OR (${Telephony.Sms.DATE} = ? AND ${Telephony.Sms._ID} > ?))"
+                args += sinceEpochMillis.toString()
+                args += sinceEpochMillis.toString()
+                args += sinceIdExclusive.toString()
+            } else {
+                selectionParts += "${Telephony.Sms.DATE} >= ?"
+                args += sinceEpochMillis.toString()
+            }
         }
         if (beforeEpochMillis != null) {
             selectionParts += "${Telephony.Sms.DATE} < ?"
@@ -53,7 +61,7 @@ internal object SmsInboxReader {
         // LIMIT is appended to the sort order — supported by the SMS provider's
         // SQLite-backed query path. Harmless if ignored by an odd OEM provider.
         val sortOrder = buildString {
-            append("${Telephony.Sms.DATE} ASC")
+            append("${Telephony.Sms.DATE} ASC, ${Telephony.Sms._ID} ASC")
             if (limit != null && limit > 0) append(" LIMIT ").append(limit)
         }
 
@@ -66,12 +74,14 @@ internal object SmsInboxReader {
             sortOrder,
         )?.use { c ->
             val addressIdx = c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
+            val idIdx = c.getColumnIndexOrThrow(Telephony.Sms._ID)
             val dateIdx = c.getColumnIndexOrThrow(Telephony.Sms.DATE)
             val bodyIdx = c.getColumnIndexOrThrow(Telephony.Sms.BODY)
             var emitted = 0
             while (c.moveToNext()) {
                 if (limit != null && emitted >= limit) break
                 out += mapOf(
+                    "id" to c.getLong(idIdx),
                     "sender" to (c.getString(addressIdx) ?: ""),
                     "body" to (c.getString(bodyIdx) ?: ""),
                     "timestamp" to c.getLong(dateIdx),

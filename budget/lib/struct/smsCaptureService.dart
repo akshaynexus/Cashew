@@ -7,7 +7,7 @@ import 'package:cashew_pennywise/cashew_pennywise.dart';
 
 /// Orchestrates automatic transaction capture for Cashew: it connects the
 /// PennyWise plugin (inbox scan, live SMS, PDF statements) to Cashew's
-/// [captureParsedTransaction] persistence + reconciliation layer.
+/// [captureParsedTransaction] persistence layer.
 ///
 /// SMS capture is Android-only (the plugin's channels no-op elsewhere); PDF
 /// import is cross-platform. This file owns the entry points the UI calls.
@@ -59,7 +59,7 @@ bool Function() smsCaptureSupported =
 
 /// Runs a historical inbox scan, capturing each parsed transaction and
 /// enqueueing known-sender messages the parser couldn't handle. DB writes are
-/// serialized (awaited in order) so dedup + balance reconciliation stay correct.
+/// serialized (awaited in order) so dedup stays correct.
 ///
 /// [onProgress] is called per page so the UI can drive a progress indicator.
 Future<SmsCaptureSummary> runHistoricalSmsScan({
@@ -91,8 +91,8 @@ Future<SmsCaptureSummary> runHistoricalSmsScan({
     onProgress?.call(progress);
   }
 
-  await updateSettings("smsLastScanTimestamp",
-      DateTime.now().millisecondsSinceEpoch,
+  await updateSettings(
+      "smsLastScanTimestamp", DateTime.now().millisecondsSinceEpoch,
       updateGlobalState: false);
   return summary;
 }

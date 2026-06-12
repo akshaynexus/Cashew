@@ -3,8 +3,8 @@
 // Fake SMS inbox (MethodChannel) -> SmsScanner (fetch + parse) ->
 // captureParsedTransaction() -> rows inserted into a REAL in-memory
 // FinanceDatabase. Asserts row insertion, dedup, account routing,
-// merchant->category, MethodAdded.parsed + transactionHash, and bank-balance
-// reconciliation.
+// merchant->category, MethodAdded.parsed + transactionHash, and that reported
+// SMS balances do not create fake ledger corrections.
 //
 // Run from `budget/`:  flutter test test/sms_capture_pipeline_test.dart
 
@@ -53,7 +53,8 @@ void main() {
     database = FinanceDatabase(NativeDatabase.memory());
 
     // --- Seed categories ---
-    // Default/uncategorized category ("0") used as fallback + balance corrections.
+    // Default/uncategorized category ("0") used by Cashew for manual balance
+    // corrections. SMS capture must not create those rows automatically.
     await initializeBalanceCorrectionCategory();
     // An income category so the Canara INCOME credit is signed positive.
     await database.createOrUpdateCategory(
@@ -126,9 +127,9 @@ void main() {
         decimals: 2,
       ),
     );
-    // Canara wallet mapped by (bankName, accountLast4) for reconciliation.
-    // Give it a known starting state (a single +100 transaction) so the
-    // reconcile has a drift to correct against the reported balance.
+    // Canara wallet mapped by (bankName, accountLast4).
+    // Give it a known starting state (a single +100 transaction) so we can
+    // prove SMS reported balances do not fabricate a correction.
     await database.createOrUpdateWallet(
       insert: false,
       TransactionWallet(
@@ -181,7 +182,8 @@ void main() {
     );
 
     // --- Load goldens ---
-    final file = File('packages/cashew_pennywise/test/fixtures/sms_parse_goldens.json');
+    final file =
+        File('packages/cashew_pennywise/test/fixtures/sms_parse_goldens.json');
     goldens = jsonDecode(await file.readAsString()) as List<dynamic>;
 
     // --- Fake the MethodChannel ---
@@ -251,11 +253,12 @@ void main() {
     }
 
     // All 5 inserted.
-    expect(results.where((r) => r.outcome == CaptureOutcome.inserted).length, 5);
+    expect(
+        results.where((r) => r.outcome == CaptureOutcome.inserted).length, 5);
 
     // ---- Assertion 1: rows inserted with parsed metadata ----
     final all = await database.allTransactions;
-    // 5 captured + 1 seed + 1 balance correction = 7.
+    // 5 captured + 1 seed = 6. Reported SMS balances must not add rows.
     final parsedRows =
         all.where((t) => t.methodAdded == MethodAdded.parsed).toList();
     expect(parsedRows.length, 5);
@@ -301,17 +304,17 @@ void main() {
     expect(federalSwiggy.walletFk, "fallback",
         reason: 'Federal (no last4) routes to fallback wallet');
 
-    // ---- Assertion 4: balance reconciliation ----
+    // ---- Assertion 4: reported SMS balances do not mutate the ledger ----
     final canaraTotal =
         await database.watchTotalOfWalletNoConversion("canara").first;
-    expect(canaraTotal, 2679815.88,
-        reason: 'Canara wallet total equals bank-reported balance');
-    // A correction transaction carries the reconcile marker.
+    expect(canaraTotal, 1330714.75,
+        reason:
+            'Canara total is seed + real parsed transaction, not reported balance');
     final canaraTxns = await database.getAllTransactionsFromWallet("canara");
-    final correction =
-        canaraTxns.where((t) => t.note.contains(kReconcileMarker)).toList();
-    expect(correction.length, 1, reason: 'exactly one balance-sync correction');
-    expect(correction.first.categoryFk, "0");
+    final corrections =
+        canaraTxns.where((t) => t.name == "balance-sync").toList();
+    expect(corrections, isEmpty,
+        reason: 'SMS capture must not create balance-sync corrections');
 
     // ---- Assertion 5: unrecognized queue ----
     // The promo (parsed == null, known sender) is NOT auto-enqueued by the

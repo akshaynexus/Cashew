@@ -3,21 +3,16 @@
 // Turns a parser-produced [ParsedTransaction] (from the cashew_pennywise SMS /
 // PDF parsers) into a Cashew [Transaction], with:
 //  - hash-based deduplication (skip if we already captured this message),
-//  - account routing by (bankName, accountLast4) -> Wallet, and
-//  - optional bank-balance reconciliation via a balance-correction transaction.
+//  - account routing by (bankName, accountLast4) -> Wallet.
 //
 // This is the single glue point between the plugin's pure parsing/decision
-// logic and Cashew's Drift database. The pure dedup/reconcile rules live in the
-// plugin (CaptureDeduplicator / BalanceReconciler); this file only wires them
-// to the global `database` and Cashew's insert/correction primitives.
+// logic and Cashew's Drift database.
 
 import 'package:budget/colors.dart';
 import 'package:budget/database/tables.dart';
 import 'package:budget/pages/addTransactionPage.dart';
-import 'package:budget/pages/addWalletPage.dart';
 import 'package:budget/struct/databaseGlobal.dart';
 import 'package:budget/struct/settings.dart';
-import 'package:cashew_pennywise/src/capture/balance_reconciler.dart';
 import 'package:cashew_pennywise/src/capture/transaction_enricher.dart';
 import 'package:cashew_pennywise/src/parsed_transaction.dart';
 import 'package:flutter/material.dart';
@@ -47,31 +42,63 @@ class TransactionCaptureResult {
   /// The primary key of the inserted transaction, if one was created.
   final String? transactionPk;
 
-  /// The primary key of the balance-correction transaction, if reconciliation
-  /// produced one.
-  final String? correctionTransactionPk;
-
   const TransactionCaptureResult({
     required this.outcome,
     this.transactionPk,
-    this.correctionTransactionPk,
   });
 
   bool get wasInserted => outcome == CaptureOutcome.inserted;
 
   @override
   String toString() => 'TransactionCaptureResult($outcome, '
-      'transactionPk=$transactionPk, '
-      'correctionTransactionPk=$correctionTransactionPk)';
+      'transactionPk=$transactionPk)';
 }
-
-/// Note marker stamped on auto-reconcile balance corrections so a later
-/// reconcile can find and replace the previous one (avoiding correction spam).
-const String kReconcileMarker = "[auto-balance-sync]";
 
 /// Window for cross-source (SMS vs notification) duplicate matching, mirroring
 /// PennyWise's ±2-minute amount+bank match in its native notification listener.
 const Duration kCrossSourceWindow = Duration(minutes: 2);
+
+/// PennyWise's UPI RRN duplicate window.
+const Duration kUpiReferenceWindow = Duration(minutes: 3);
+
+bool _typesCompatible(Transaction existing, ParsedTransaction parsed) {
+  if (existing.income) return parsed.type == ParsedTransactionType.income;
+  return parsed.type != ParsedTransactionType.income;
+}
+
+bool _last4Compatible(String? existingLast4, String? parsedLast4) {
+  final existing = existingLast4 == null ? '' : _normalizeLast4(existingLast4);
+  final parsed = parsedLast4 == null ? '' : _normalizeLast4(parsedLast4);
+  return existing.isEmpty || parsed.isEmpty || existing == parsed;
+}
+
+bool _currencyCompatible(TransactionWallet? wallet, ParsedTransaction parsed) {
+  final walletCurrency = wallet?.currency;
+  return walletCurrency == null ||
+      walletCurrency.isEmpty ||
+      walletCurrency.toLowerCase() == parsed.currency.toLowerCase();
+}
+
+Future<bool> _transactionMatchesParsed(
+  Transaction existing,
+  ParsedTransaction parsed, {
+  required Duration window,
+}) async {
+  if ((existing.amount.abs() - parsed.signedAmount.abs()).abs() > 0.001) {
+    return false;
+  }
+  if (!_typesCompatible(existing, parsed)) return false;
+  if (existing.dateCreated.difference(parsed.timestamp).abs() > window) {
+    return false;
+  }
+
+  final wallet = await database.getWalletInstanceOrNull(existing.walletFk);
+  if (!_last4Compatible(wallet?.accountLast4, parsed.accountLast4)) {
+    return false;
+  }
+  if (!_currencyCompatible(wallet, parsed)) return false;
+  return true;
+}
 
 /// True if [parsed] looks like the same payment as an already-captured
 /// transaction arriving via the other channel (SMS↔notification): same
@@ -92,21 +119,95 @@ Future<bool> _isCrossSourceDuplicate(ParsedTransaction parsed) async {
   );
 
   for (final t in near) {
-    if ((t.amount.abs() - magnitude).abs() > 0.001) continue;
+    if (!await _transactionMatchesParsed(
+      t,
+      parsed,
+      window: kCrossSourceWindow,
+    )) {
+      continue;
+    }
     if (t.name.trim().toLowerCase() == merchant) return true;
   }
   return false;
 }
 
-const BalanceReconciler _reconciler = BalanceReconciler();
 const TransactionEnricher _enricher = TransactionEnricher();
+
+String _normalizeAccountKey(String value) =>
+    value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
+String _normalizeLast4(String value) => value.replaceAll(RegExp(r'\D'), '');
+
+/// Finds a wallet for the parsed bank account/card. The exact DB query is kept
+/// for the common path; the in-memory normalized pass avoids duplicates caused
+/// by bank-name casing/spacing changes from parser updates.
+Future<TransactionWallet?> _findWalletForParsedAccount(
+  String bankName,
+  String accountLast4,
+) async {
+  final normalizedLast4 = _normalizeLast4(accountLast4);
+  if (normalizedLast4.isEmpty) return null;
+
+  final exact =
+      await database.getWalletByBankAndLast4(bankName, normalizedLast4);
+  if (exact != null) return exact;
+
+  final normalizedBank = _normalizeAccountKey(bankName);
+  for (final wallet in await database.getAllWallets()) {
+    final walletLast4 = wallet.accountLast4;
+    if (walletLast4 == null) continue;
+    if (_normalizeLast4(walletLast4) != normalizedLast4) continue;
+    final walletBank = wallet.bankName;
+    if (walletBank == null || walletBank.trim().isEmpty) continue;
+    if (_normalizeAccountKey(walletBank) == normalizedBank) return wallet;
+  }
+  return null;
+}
+
+/// Creates a dedicated Cashew account for a bank account/card seen in an SMS.
+/// This prevents unidentified cards from being booked against the selected
+/// wallet and driving a main account negative.
+Future<TransactionWallet?> _createWalletForParsedAccount(
+  ParsedTransaction parsed,
+  String accountLast4,
+) async {
+  final normalizedLast4 = _normalizeLast4(accountLast4);
+  if (normalizedLast4.isEmpty) return null;
+
+  final bankName =
+      parsed.bankName.trim().isEmpty ? 'Bank' : parsed.bankName.trim();
+  final walletName = parsed.isFromCard
+      ? '$bankName Card $normalizedLast4'
+      : '$bankName Account $normalizedLast4';
+  final numberOfWallets = (await database.getTotalCountOfWallets())[0] ?? 0;
+
+  final rowId = await database.createOrUpdateWallet(
+    insert: true,
+    TransactionWallet(
+      walletPk: "-1",
+      name: walletName,
+      colour: toHexString(parsed.isFromCard ? Colors.deepPurple : Colors.blue),
+      iconName: parsed.isFromCard ? "credit-card.png" : "bank.png",
+      dateCreated: DateTime.now(),
+      dateTimeModified: null,
+      order: numberOfWallets,
+      currency: parsed.currency,
+      decimals: 2,
+      homePageWidgetDisplay: defaultWalletHomePageWidgetDisplay,
+      bankName: bankName,
+      accountLast4: normalizedLast4,
+    ),
+  );
+  return database.getWalletFromRowId(rowId);
+}
 
 /// Matches a 12-digit UPI RRN — the reference key used for reference-based
 /// enrichment (a PDF statement row and the original SMS share this).
 final RegExp _upiReferencePattern = RegExp(r'^\d{12}$');
 
 /// Maps the incoming [parsed] transaction to a statement [EnrichCandidate].
-EnrichCandidate _statementCandidate(ParsedTransaction parsed) => EnrichCandidate(
+EnrichCandidate _statementCandidate(ParsedTransaction parsed) =>
+    EnrichCandidate(
       amount: parsed.signedAmount.abs(),
       currency: parsed.currency,
       type: parsed.type,
@@ -125,9 +226,8 @@ Future<EnrichCandidate> _existingCandidate(
   final wallet = await database.getWalletInstanceOrNull(existing.walletFk);
   return EnrichCandidate(
     amount: existing.amount.abs(),
-    // Cashew stores a single per-wallet currency; reconcile against the
-    // incoming currency so the comparison isn't tripped by an unknown existing
-    // currency. The reference/account match already anchors identity.
+    // Cashew stores a single per-wallet currency. The reference/account match
+    // already anchors identity, so use the incoming currency for comparison.
     currency: parsed.currency,
     type: existing.income
         ? ParsedTransactionType.income
@@ -151,21 +251,31 @@ Future<void> _updateMerchant(Transaction existing, String newName) async {
 /// already maps to a captured transaction, either enrich that transaction's
 /// merchant (returning [CaptureOutcome.enriched]) or treat it as a duplicate
 /// ([CaptureOutcome.duplicate]). Returns null if no reference match applies.
-Future<CaptureOutcome?> _tryReferenceEnrichment(ParsedTransaction parsed) async {
+Future<CaptureOutcome?> _tryReferenceEnrichment(
+    ParsedTransaction parsed) async {
   final ref = parsed.reference;
   if (ref == null || !_upiReferencePattern.hasMatch(ref)) return null;
 
-  final existing = await database.getTransactionByParsedReference(ref);
-  if (existing == null) return null;
-
-  final existingCand = await _existingCandidate(existing, parsed);
+  final existingRows = await database.getTransactionsByParsedReference(ref);
   final statementCand = _statementCandidate(parsed);
-  final better = _enricher.enrichedMerchant(existingCand, statementCand);
-  if (better != null) {
-    await _updateMerchant(existing, better);
-    return CaptureOutcome.enriched;
+  for (final existing in existingRows) {
+    if (!await _transactionMatchesParsed(
+      existing,
+      parsed,
+      window: kUpiReferenceWindow,
+    )) {
+      continue;
+    }
+
+    final existingCand = await _existingCandidate(existing, parsed);
+    final better = _enricher.enrichedMerchant(existingCand, statementCand);
+    if (better != null) {
+      await _updateMerchant(existing, better);
+      return CaptureOutcome.enriched;
+    }
+    return CaptureOutcome.duplicate;
   }
-  return CaptureOutcome.duplicate;
+  return null;
 }
 
 /// Window-based enrichment: scan captured transactions within ±[kEnrichMatchWindow]
@@ -181,11 +291,18 @@ Future<bool> _tryWindowEnrichment(ParsedTransaction parsed) async {
     parsed.timestamp.add(kEnrichMatchWindow),
   );
   for (final existing in near) {
+    if (!await _transactionMatchesParsed(
+      existing,
+      parsed,
+      window: kUpiReferenceWindow,
+    )) {
+      continue;
+    }
     final existingCand = await _existingCandidate(existing, parsed);
-    final matches = _enricher.isFallbackStatementMatch(
-            existingCand, statementCand) ||
-        _enricher.isAmountDateFallbackEnrichmentCandidate(
-            existingCand, statementCand);
+    final matches =
+        _enricher.isFallbackStatementMatch(existingCand, statementCand) ||
+            _enricher.isAmountDateFallbackEnrichmentCandidate(
+                existingCand, statementCand);
     if (!matches) continue;
     final better = _enricher.enrichedMerchant(existingCand, statementCand);
     if (better != null) {
@@ -206,12 +323,14 @@ Future<bool> _tryWindowEnrichment(ParsedTransaction parsed) async {
 ///  3. Resolve a category from the merchant via similar associated titles; fall
 ///     back to the default/uncategorized category.
 ///  4. Insert a [Transaction] (`methodAdded: MethodAdded.parsed`).
-///  5. If [reconcileBalance] and the message reported a balance AND the wallet
-///     was matched by last4, reconcile the wallet's running balance.
+///
+/// Reported SMS balances are deliberately NOT written as balance-correction
+/// transactions. PennyWise stores them as account/card balance metadata; Cashew
+/// currently has no separate balance-history model, so mutating the ledger to
+/// force a match would create fake transactions and corrupt spending history.
 Future<TransactionCaptureResult> captureParsedTransaction(
-  ParsedTransaction parsed, {
-  bool reconcileBalance = true,
-}) async {
+  ParsedTransaction parsed,
+) async {
   // 1. Dedup by stable hash.
   if (parsed.transactionId.isNotEmpty) {
     final existing = await database.getTransactionByHash(parsed.transactionId);
@@ -228,14 +347,17 @@ Future<TransactionCaptureResult> captureParsedTransaction(
     return TransactionCaptureResult(outcome: refOutcome);
   }
 
-  // 2. Resolve the wallet. matchedByLast4 gates reconciliation: we only trust
-  //    a reported balance against a wallet we actually identified by account.
+  // 2. Resolve the wallet. Like PennyWise, account identity comes from the
+  //    parser's bank name + account/card last4. If Cashew has not seen this
+  //    account before, create a dedicated wallet for it instead of polluting
+  //    the selected fallback wallet.
   TransactionWallet? wallet;
-  bool matchedByLast4 = false;
   final last4 = parsed.accountLast4;
   if (last4 != null && last4.isNotEmpty) {
-    wallet = await database.getWalletByBankAndLast4(parsed.bankName, last4);
-    matchedByLast4 = wallet != null;
+    wallet = await _findWalletForParsedAccount(parsed.bankName, last4);
+    if (wallet == null) {
+      wallet = await _createWalletForParsedAccount(parsed, last4);
+    }
   }
   if (wallet == null) {
     final fallbackPk = appStateSettings["selectedWalletPk"];
@@ -289,9 +411,8 @@ Future<TransactionCaptureResult> captureParsedTransaction(
   final double magnitude = parsed.signedAmount.abs();
   final double amount = magnitude * (category.income ? 1 : -1);
 
-  final String name = (merchant != null && merchant.isNotEmpty)
-      ? merchant
-      : parsed.bankName;
+  final String name =
+      (merchant != null && merchant.isNotEmpty) ? merchant : parsed.bankName;
 
   final int? rowId = await database.createOrUpdateTransaction(
     insert: true,
@@ -320,82 +441,10 @@ Future<TransactionCaptureResult> captureParsedTransaction(
     insertedPk = inserted.transactionPk;
   }
 
-  // 5. Reconcile the bank-reported balance, if we trust the routing. The
-  //    reconciler branches on isFromCard: for a credit card the reported
-  //    balance is the OUTSTANDING amount and is negated into Cashew's
-  //    wallet-balance convention; for debit/savings it is used directly.
-  String? correctionPk;
-  if (reconcileBalance && matchedByLast4 && parsed.balance != null) {
-    correctionPk = await _reconcileWalletBalance(wallet, parsed);
-  }
-
   return TransactionCaptureResult(
     outcome: CaptureOutcome.inserted,
     transactionPk: insertedPk,
-    correctionTransactionPk: correctionPk,
   );
-}
-
-/// Reconciles [wallet]'s current Cashew balance against the bank-reported
-/// balance carried by [parsed], creating/replacing a balance-correction
-/// transaction if they drift beyond tolerance.
-///
-/// Correction-spam handling: each auto-reconcile correction is tagged with
-/// [kReconcileMarker] in its note. Before creating a new one we delete the most
-/// recent existing marked correction for this wallet, so the wallet carries at
-/// most one standing auto-sync correction rather than accumulating one per SMS.
-Future<String?> _reconcileWalletBalance(
-  TransactionWallet wallet,
-  ParsedTransaction parsed,
-) async {
-  final reported = double.tryParse(parsed.balance ?? "");
-  // We reconcile against an authoritative balance. For both debit/savings and
-  // credit cards that means an explicitly reported balance: for a card the
-  // reported balance IS the outstanding amount (the reconciler negates it into
-  // Cashew's wallet-balance convention). We do not derive outstanding from
-  // creditLimit alone here because the card's *total* sanctioned limit is not
-  // available from the wallet, so available-limit alone can't yield outstanding.
-  if (reported == null) return null;
-
-  // Reuse Cashew's existing wallet-balance query (the same SUM used across the
-  // app for a wallet total): watchTotalOfWalletNoConversion. We take its
-  // current value via .first.
-  final double computed =
-      (await database.watchTotalOfWalletNoConversion(wallet.walletPk).first) ??
-          0.0;
-
-  final result = _reconciler.reconcile(
-    reportedBalance: reported,
-    computedBalance: computed,
-    type: parsed.type,
-    isFromCard: parsed.isFromCard,
-    decimals: wallet.decimals,
-  );
-
-  if (!result.needsCorrection) return null;
-
-  // Remove the previous auto-sync correction (if any) before adding a fresh
-  // one, so corrections don't stack.
-  await _deletePreviousReconcileCorrections(wallet.walletPk);
-
-  return await createCorrectionTransaction(
-    result.correctionDelta,
-    wallet,
-    title: "balance-sync",
-    note: kReconcileMarker,
-    dateTime: parsed.timestamp,
-  );
-}
-
-/// Deletes prior auto-reconcile balance corrections for [walletPk] (those in
-/// the balance-correction category "0" whose note carries [kReconcileMarker]).
-Future<void> _deletePreviousReconcileCorrections(String walletPk) async {
-  final all = await database.getAllTransactionsFromWallet(walletPk);
-  for (final t in all) {
-    if (t.categoryFk == "0" && (t.note).contains(kReconcileMarker)) {
-      await database.deleteTransaction(t.transactionPk);
-    }
-  }
 }
 
 /// Stable primary key for the "Other / Uncategorized" expense category that

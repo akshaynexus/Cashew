@@ -37,8 +37,11 @@ class CashewPennywisePlugin :
     private lateinit var appContext: Context
 
     // Parsing a full inbox / reading SMS can be thousands of messages; keep it off
-    // the main thread. Reused for both parser and content-resolver work.
-    private val worker = Executors.newSingleThreadExecutor()
+    // the main thread. A small bounded pool lets independent channel calls make
+    // progress without letting an inbox scan monopolize the plugin.
+    private val worker = Executors.newFixedThreadPool(
+        (Runtime.getRuntime().availableProcessors() - 1).coerceIn(2, 4)
+    )
     private val main = Handler(Looper.getMainLooper())
 
     // ─── Activity + pending permission request state ──────────────────────────
@@ -98,6 +101,12 @@ class CashewPennywisePlugin :
                 result.success(ParserBridge.isKnownSender(sender))
             }
 
+            "isKnownSenderBatch" -> runAsync(result) {
+                @Suppress("UNCHECKED_CAST")
+                val senders = call.argument<List<String>>("senders") ?: emptyList()
+                ParserBridge.isKnownSenderBatch(senders)
+            }
+
             "parse" -> runAsync(result) {
                 val sender = call.argument<String>("sender") ?: return@runAsync null
                 val body = call.argument<String>("body") ?: return@runAsync null
@@ -127,9 +136,10 @@ class CashewPennywisePlugin :
 
             "readInbox" -> runAsync(result) {
                 val since = (call.argument<Number>("sinceEpochMillis"))?.toLong()
+                val sinceId = (call.argument<Number>("sinceIdExclusive"))?.toLong()
                 val before = (call.argument<Number>("beforeEpochMillis"))?.toLong()
                 val limit = (call.argument<Number>("limit"))?.toInt()
-                SmsInboxReader.read(appContext, since, before, limit)
+                SmsInboxReader.read(appContext, since, sinceId, before, limit)
             }
 
             "hasNotificationAccess" ->

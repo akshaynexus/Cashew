@@ -10,6 +10,7 @@ import com.pennywiseai.parser.core.bank.PNBBankParser
 import com.pennywiseai.parser.core.bank.SBIBankParser
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.stream.Collectors
 
 /**
  * Thin adapter between the vendored PennyWise [BankParserFactory] and the
@@ -73,14 +74,21 @@ internal object ParserBridge {
 
     /** Parse many messages at once. Unparseable entries are dropped. */
     fun parseBatch(messages: List<Map<String, Any?>>): List<Map<String, Any?>> =
-        messages.mapNotNull { msg ->
-            val sender = msg["sender"] as? String ?: return@mapNotNull null
-            val body = msg["body"] as? String ?: return@mapNotNull null
-            val ts = (msg["timestamp"] as? Number)?.toLong() ?: return@mapNotNull null
-            BankParserFactory.parse(body, sender, ts)?.toMap()
-        }
+        messages.parallelStream().map { msg ->
+            val sender = msg["sender"] as? String
+            val body = msg["body"] as? String
+            val ts = (msg["timestamp"] as? Number)?.toLong()
+            if (sender == null || body == null || ts == null) {
+                null
+            } else {
+                BankParserFactory.parse(body, sender, ts)?.toMap()
+            }
+        }.filter { it != null }.map { it!! }.collect(Collectors.toList())
 
     fun isKnownSender(sender: String): Boolean = BankParserFactory.isKnownBankSender(sender)
+
+    fun isKnownSenderBatch(senders: List<String>): Map<String, Boolean> =
+        senders.distinct().associateWith { BankParserFactory.isKnownBankSender(it) }
 
     fun parserCount(): Int = BankParserFactory.getAllParsers().size
 

@@ -267,8 +267,8 @@ class Wallets extends Table {
       .nullable()
       .withDefault(const Constant(null))
       .map(const HomePageWidgetDisplayListInColumnConverter())();
-  // Maps a bank account (bank name + last 4 digits) to this wallet for SMS
-  // routing and balance reconciliation.
+  // Maps a bank account/card (bank name + last 4 digits) to this wallet for
+  // SMS routing.
   TextColumn get bankName => text().nullable()();
   TextColumn get accountLast4 => text().nullable()();
 
@@ -2552,6 +2552,14 @@ class FinanceDatabase extends _$FinanceDatabase {
         .getSingleOrNull();
   }
 
+  /// Parser-captured transactions carrying [reference] (UPI RRN).
+  /// Used when applying PennyWise-compatible reference dedup rules in Dart.
+  Future<List<Transaction>> getTransactionsByParsedReference(String reference) {
+    return (select(transactions)
+          ..where((t) => t.parsedReference.equals(reference)))
+        .get();
+  }
+
   /// Parser-captured transactions whose dateCreated falls within [start, end].
   /// Used for cross-source dedup (same payment arriving via SMS + notification).
   Future<List<Transaction>> getCapturedTransactionsInRange(
@@ -2565,7 +2573,7 @@ class FinanceDatabase extends _$FinanceDatabase {
   }
 
   // Returns the first wallet matching both bankName and accountLast4, or null.
-  // Used for SMS routing and balance reconciliation.
+  // Used for SMS routing.
   Future<TransactionWallet?> getWalletByBankAndLast4(
       String bankName, String accountLast4) {
     return (select(wallets)

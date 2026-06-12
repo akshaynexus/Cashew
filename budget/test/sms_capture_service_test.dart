@@ -1,7 +1,7 @@
 // Service-level test: drives the real `runHistoricalSmsScan()` entry point
 // (smsCaptureService.dart) against a fake inbox + real in-memory Drift DB.
 // Unlike sms_capture_pipeline_test (which drove capture manually), this proves
-// the SERVICE wires scan -> capture -> AUTO-enqueue of unrecognized -> reconcile.
+// the SERVICE wires scan -> capture -> AUTO-enqueue of unrecognized.
 
 import 'dart:convert';
 import 'dart:io';
@@ -154,7 +154,7 @@ void main() {
         .setMockMethodCallHandler(const MethodChannel(_channelName), null);
   });
 
-  test('runHistoricalSmsScan captures, auto-enqueues unrecognized, reconciles',
+  test('runHistoricalSmsScan captures without fake balance corrections',
       () async {
     final summary = await runHistoricalSmsScan();
 
@@ -171,10 +171,14 @@ void main() {
     expect(parsedRows.length, 5);
     expect(parsedRows.every((t) => t.transactionHash != null), true);
 
-    // Bank-balance reconciliation trued the Canara wallet to the reported value.
+    // Reported SMS balance is metadata in PennyWise. Cashew has no equivalent
+    // balance-history table yet, so capture must leave the ledger as real
+    // transactions only.
     final canaraTotal =
         await database.watchTotalOfWalletNoConversion("canara").first;
-    expect(canaraTotal, 2679815.88);
+    expect(canaraTotal, 1330614.75);
+    final canaraTxns = await database.getAllTransactionsFromWallet("canara");
+    expect(canaraTxns.where((t) => t.name == "balance-sync"), isEmpty);
 
     // The promo SMS is in the unrecognized review queue.
     final queue = await database.watchAllUnrecognizedSms().first;

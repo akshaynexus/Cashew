@@ -47,7 +47,8 @@ void main() {
       };
 
   /// Build an inbox row map (sender/body/timestamp).
-  Map<String, Object?> inboxRow(int timestamp) => {
+  Map<String, Object?> inboxRow(int timestamp, {int? id}) => {
+        if (id != null) 'id': id,
         'sender': 'HDFCBK',
         'body': 'msg',
         'timestamp': timestamp,
@@ -68,8 +69,7 @@ void main() {
         return null;
       });
 
-      final pages =
-          await SmsInbox().pageForward(pageSize: 2).toList();
+      final pages = await SmsInbox().pageForward(pageSize: 2).toList();
 
       // Page 1 had exactly pageSize rows, so a second (empty) read happened.
       expect(readInboxCalls, 2);
@@ -110,6 +110,39 @@ void main() {
 
       expect(sinceArgs[0], isNull); // first page: no lower bound
       expect(sinceArgs[1], 2001); // advanced to lastTs + 1ms
+    });
+
+    test('uses row id tie-breaker for same-millisecond page boundaries',
+        () async {
+      final sinceArgs = <int?>[];
+      final sinceIdArgs = <int?>[];
+      var call = 0;
+      messenger.setMockMethodCallHandler(channel, (c) async {
+        if (c.method == 'readInbox') {
+          sinceArgs.add((c.arguments['sinceEpochMillis'] as num?)?.toInt());
+          sinceIdArgs.add((c.arguments['sinceIdExclusive'] as num?)?.toInt());
+          call++;
+          if (call == 1) {
+            return [inboxRow(1000, id: 10), inboxRow(1000, id: 11)];
+          }
+          if (call == 2) {
+            expect((c.arguments['sinceEpochMillis'] as num).toInt(), 1000);
+            expect((c.arguments['sinceIdExclusive'] as num).toInt(), 11);
+            return [inboxRow(1000, id: 12)];
+          }
+          return <Object?>[];
+        }
+        return null;
+      });
+
+      final pages = await SmsInbox().pageForward(pageSize: 2).toList();
+
+      expect(pages.map((p) => p.map((m) => m.id).toList()).toList(), [
+        [10, 11],
+        [12],
+      ]);
+      expect(sinceArgs, [null, 1000]);
+      expect(sinceIdArgs, [null, 11]);
     });
   });
 
@@ -227,8 +260,7 @@ void main() {
         return null;
       });
 
-      final events =
-          await SmsScanner().scanInbox(pageSize: 2).toList();
+      final events = await SmsScanner().scanInbox(pageSize: 2).toList();
 
       final pageEvents = events.where((e) => !e.done).toList();
       expect(pageEvents, hasLength(2));

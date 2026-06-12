@@ -172,11 +172,13 @@ class ParsedMandate {
 
 /// One raw message handed to the parser (SMS, or notification text).
 class RawMessage {
+  final int? id;
   final String sender;
   final String body;
   final DateTime timestamp;
 
   const RawMessage({
+    this.id,
     required this.sender,
     required this.body,
     required this.timestamp,

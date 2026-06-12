@@ -27,6 +27,34 @@ class SmsParser {
     return known ?? false;
   }
 
+  /// Batched variant for inbox scans. Falls back to per-sender calls when the
+  /// host app is running against an older native plugin or a narrow test mock.
+  Future<Map<String, bool>> isKnownSenderBatch(Iterable<String> senders) async {
+    final unique = senders.where((s) => s.isNotEmpty).toSet().toList();
+    if (unique.isEmpty) return const {};
+
+    try {
+      final map = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'isKnownSenderBatch',
+        {'senders': unique},
+      );
+      if (map != null) {
+        return map.map((key, value) => MapEntry(
+              key.toString(),
+              value == true,
+            ));
+      }
+    } on MissingPluginException {
+      // Older native side; use the compatible path below.
+    }
+
+    final result = <String, bool>{};
+    for (final sender in unique) {
+      result[sender] = await isKnownSender(sender);
+    }
+    return result;
+  }
+
   /// Parse a single message. Returns null if no parser handled it (OTP, promo,
   /// unknown sender, etc.).
   Future<ParsedTransaction?> parse(RawMessage message) async {
@@ -41,7 +69,8 @@ class SmsParser {
   /// message isn't a mandate notification. A mandate-setup SMS usually does NOT
   /// parse as a transaction (no debit), so try this on messages [parse] missed.
   Future<ParsedMandate?> parseMandate(RawMessage message) async {
-    final map = await _channel.invokeMethod<Map<dynamic, dynamic>>('parseMandate', {
+    final map =
+        await _channel.invokeMethod<Map<dynamic, dynamic>>('parseMandate', {
       'sender': message.sender,
       'body': message.body,
     });
