@@ -20,6 +20,7 @@ import 'package:budget/widgets/settingsContainers.dart';
 import 'package:budget/widgets/statusBox.dart';
 import 'package:budget/widgets/tappable.dart';
 import 'package:budget/widgets/textWidgets.dart';
+import 'package:budget/widgets/unrecognizedSmsQueue.dart';
 import 'package:budget/widgets/util/appLinks.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -423,7 +424,7 @@ Future<void> parseEmailsInBackground(context,
           appStateSettings["EmailAutoTransactions-amountOfEmails"] ?? 10;
       int newEmailCount = 0;
 
-      final authHeaders = await googleUser!.authHeaders;
+      final authHeaders = await getGoogleAuthHeaders();
       final authenticateClient = GoogleAuthClient(authHeaders);
       gMail.GmailApi gmailApi = gMail.GmailApi(authenticateClient);
       gMail.ListMessagesResponse results = await gmailApi.users.messages
@@ -661,7 +662,7 @@ class _GmailApiScreenState extends State<GmailApiScreen> {
     loading = true;
     if (googleUser != null) {
       try {
-        final authHeaders = await googleUser!.authHeaders;
+        final authHeaders = await getGoogleAuthHeaders();
         final authenticateClient = GoogleAuthClient(authHeaders);
         gMail.GmailApi gmailApi = gMail.GmailApi(authenticateClient);
         gMail.ListMessagesResponse results = await gmailApi.users.messages
@@ -809,7 +810,28 @@ class _GmailApiScreenState extends State<GmailApiScreen> {
               );
             },
           ),
-          EmailsList(messagesList: messagesList)
+          EmailsList(messagesList: messagesList),
+          Padding(
+            padding:
+                const EdgeInsetsDirectional.only(top: 13, bottom: 4, start: 15),
+            child: TextFont(
+              text: "Unrecognized messages",
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(
+                bottom: 5, start: 15, end: 15),
+            child: TextFont(
+              text:
+                  "Messages that looked like bank transactions but couldn't be parsed. Review them, dismiss them, or create a template.",
+              fontSize: 14,
+              maxLines: 10,
+            ),
+          ),
+          SizedBox(height: 5),
+          UnrecognizedSmsQueue(),
         ],
       );
     } else {

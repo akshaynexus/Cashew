@@ -104,11 +104,11 @@ class _ImportCSVState extends State<ImportCSV> {
   Future<void> _assignColumns(String csvString,
       {bool importFromSheets = false}) async {
     try {
-      List<List<String>> fileContents = CsvToListConverter().convert(
-        csvString,
-        eol: '\n',
-        shouldParseNumbers: false,
-      );
+      List<List<String>> fileContents =
+          CsvDecoder(dynamicTyping: false, skipEmptyLines: false)
+              .convert(csvString)
+              .map((row) => row.map((e) => e.toString()).toList())
+              .toList();
       int maxColumns = fileContents.fold(
           0, (prev, element) => element.length > prev ? element.length : prev);
 
@@ -830,7 +830,7 @@ Future saveSampleCSV({required BuildContext boxContext}) async {
       "",
       "",
     ]);
-    String csv = ListToCsvConverter().convert(csvData);
+    String csv = CsvEncoder().convert(csvData);
     String fileName = "cashew-import-template" +
         DateTime.now().millisecondsSinceEpoch.toString() +
         ".csv";

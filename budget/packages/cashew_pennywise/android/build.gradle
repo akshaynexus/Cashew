@@ -1,0 +1,56 @@
+group = "com.cashew.pennywise"
+version = "1.0"
+
+buildscript {
+    ext.kotlin_version = "1.9.22"
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.1.0"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+android {
+    namespace = "com.cashew.pennywise"
+    compileSdk = 34
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        minSdk = 21
+    }
+
+    sourceSets {
+        main.java.srcDirs += "src/main/kotlin"
+        // Vendored PennyWise parser-core (populated by tool/sync_parser_core.sh).
+        // Compiled into this AAR as-is; never duplicated in Dart.
+        main.java.srcDirs += "vendor/parser-core/kotlin"
+    }
+}
+
+dependencies {
+    // Sole external dependency of parser-core.
+    implementation "org.jetbrains.kotlinx:kotlinx-datetime:0.7.1"
+    // Capture pipeline: ContextCompat (permission checks) +
+    // NotificationManagerCompat (notification-listener access status).
+    implementation "androidx.core:core-ktx:1.12.0"
+}

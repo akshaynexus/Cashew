@@ -354,15 +354,12 @@ Future<bool> scheduleDailyNotification(
       iOS: darwinNotificationDetails,
     );
     await flutterLocalNotificationsPlugin.zonedSchedule(
-      i,
-      'notification-reminder-title'.tr(),
-      chosenMessage,
-      dateTime,
-      notificationDetails,
-      androidAllowWhileIdle: true,
+      id: i,
+      title: 'notification-reminder-title'.tr(),
+      body: chosenMessage,
+      scheduledDate: dateTime,
+      notificationDetails: notificationDetails,
       payload: 'addTransaction',
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.dateAndTime,
 
       // If exact time was used, need USE_EXACT_ALARM and SCHEDULE_EXACT_ALARM permissions
@@ -386,7 +383,7 @@ Future<bool> scheduleDailyNotification(
 Future<bool> cancelDailyNotification() async {
   // Need to cancel all, including the one at 0 - even if it does not exist
   for (int i = 0; i <= 14; i++) {
-    await flutterLocalNotificationsPlugin.cancel(i);
+    await flutterLocalNotificationsPlugin.cancel(id: i);
   }
   print("Cancelled notifications for daily reminder");
   return true;
@@ -440,15 +437,12 @@ Future<bool> scheduleUpcomingTransactionsNotification(context) async {
     );
     if (upcomingTransaction.dateCreated.isAfter(DateTime.now())) {
       await flutterLocalNotificationsPlugin.zonedSchedule(
-        idStart,
-        'notification-upcoming-transaction-title'.tr(),
-        chosenMessage,
-        dateTime,
-        notificationDetails,
-        androidAllowWhileIdle: true,
+        id: idStart,
+        title: 'notification-upcoming-transaction-title'.tr(),
+        body: chosenMessage,
+        scheduledDate: dateTime,
+        notificationDetails: notificationDetails,
         payload: 'upcomingTransaction',
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
 
         // If exact time was used, need USE_EXACT_ALARM and SCHEDULE_EXACT_ALARM permissions
         // which are only meant for calendar/reminder based applications
@@ -478,7 +472,7 @@ Future<bool> cancelUpcomingTransactionsNotification() async {
   int idStart = 100;
   for (Transaction upcomingTransaction in upcomingTransactions) {
     idStart++;
-    await flutterLocalNotificationsPlugin.cancel(idStart);
+    await flutterLocalNotificationsPlugin.cancel(id: idStart);
   }
   print("Cancelled notifications for upcoming");
   return true;

@@ -148,7 +148,7 @@ class ExportCSV extends StatelessWidget {
       csvData.add(output.first.keys.toList()); // Add first row headers
       csvData.addAll(output.map((map) => map.values.toList()));
       // print(csvData);
-      String csv = ListToCsvConverter().convert(csvData);
+      String csv = CsvEncoder().convert(csvData);
 
       String fileName;
       if (dateTimeRange != null) {

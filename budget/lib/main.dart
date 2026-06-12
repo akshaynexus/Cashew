@@ -21,6 +21,7 @@ import 'package:budget/widgets/globalLoadingProgress.dart';
 import 'package:budget/struct/scrollBehaviorOverride.dart';
 import 'package:budget/widgets/globalSnackbar.dart';
 import 'package:budget/struct/initializeNotifications.dart';
+import 'package:budget/struct/smsCaptureService.dart';
 import 'package:budget/widgets/navigationFramework.dart';
 import 'package:budget/widgets/restartApp.dart';
 import 'package:budget/struct/customDelayedCurve.dart';
@@ -56,8 +57,10 @@ void main() async {
     await loadLanguageNamesJSON();
     await initializeSettings();
     tz.initializeTimeZones();
-    final String? locationName = await FlutterTimezone.getLocalTimezone();
-    tz.setLocalLocation(tz.getLocation(locationName ?? "America/New_York"));
+    final String locationName =
+        (await FlutterTimezone.getLocalTimezone()).identifier;
+    tz.setLocalLocation(tz.getLocation(
+        locationName.isEmpty ? "America/New_York" : locationName));
     iconObjects.sort((a, b) => (a.mostLikelyCategoryName ?? a.icon)
         .compareTo((b.mostLikelyCategoryName ?? b.icon)));
     setHighRefreshRate();
@@ -88,6 +91,15 @@ class InitializeApp extends StatefulWidget {
 class _InitializeAppState extends State<InitializeApp> {
   void refreshAppState() {
     setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Start automatic SMS capture once the engine + plugins are attached.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      initSmsCaptureIfEnabled();
+    });
   }
 
   @override

@@ -1,0 +1,30 @@
+name: cashew_pennywise
+description: >-
+  Bridges PennyWise AI's parsers into Cashew. Wraps the pure-Kotlin parser-core
+  (120-bank SMS parser) as an Android plugin and ships a pure-Dart port of the
+  GPay/PhonePe PDF statement parsers (cross-platform).
+version: 0.0.1
+publish_to: "none"
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Cross-platform PDF text extraction (with password support) for the
+  # GPay/PhonePe statement importer. Android + iOS via pdfium.
+  pdfrx: ^1.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.cashew.pennywise
+        pluginClass: CashewPennywisePlugin

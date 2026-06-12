@@ -1,0 +1,132 @@
+[
+  {
+      "sms": {"sender": "AD-FEDBNK", "body": "Rs 150.00 debited via UPI on 15-08-2024 10:30:25 to VPA john.doe123@okbank.Ref No 987654321098.Small txns?Use UPI Lite!-Federal Bank", "timestamp": 1723719025000},
+      "parsed": {
+        "amount": "150.00",
+        "type": "EXPENSE",
+        "merchant": "john.doe123@okbank",
+        "reference": "987654321098",
+        "accountLast4": null,
+        "balance": null,
+        "creditLimit": null,
+        "smsBody": "Rs 150.00 debited via UPI on 15-08-2024 10:30:25 to VPA john.doe123@okbank.Ref No 987654321098.Small txns?Use UPI Lite!-Federal Bank",
+        "sender": "AD-FEDBNK",
+        "timestamp": 1723719025000,
+        "bankName": "Federal Bank",
+        "transactionId": "e508ac7ddbb33a86bdcf009afb2bbc66",
+        "isFromCard": false,
+        "currency": "INR",
+        "fromAccount": null,
+        "toAccount": null
+      }
+    },
+  {
+      "sms": {"sender": "AD-FEDBNK", "body": "Rs 450.75 debited via UPI on 16-08-2024 14:22:10 to VPA swiggy.food@paytm.Ref No 876543210987.Small txns?Use UPI Lite!-Federal Bank", "timestamp": 1723819930000},
+      "parsed": {
+        "amount": "450.75",
+        "type": "EXPENSE",
+        "merchant": "Swiggy",
+        "reference": "876543210987",
+        "accountLast4": null,
+        "balance": null,
+        "creditLimit": null,
+        "smsBody": "Rs 450.75 debited via UPI on 16-08-2024 14:22:10 to VPA swiggy.food@paytm.Ref No 876543210987.Small txns?Use UPI Lite!-Federal Bank",
+        "sender": "AD-FEDBNK",
+        "timestamp": 1723819930000,
+        "bankName": "Federal Bank",
+        "transactionId": "03732458b631a7b501e2beb8a0e389cf",
+        "isFromCard": false,
+        "currency": "INR",
+        "fromAccount": null,
+        "toAccount": null
+      }
+    },
+  {
+      "sms": {"sender": "AD-FEDBNK", "body": "Rs 3500.00 debited via UPI on 20-08-2024 12:30:45 to VPA indigo.paytm@hdfcbank.Ref No 987654321099.Small txns?Use UPI Lite!-Federal Bank", "timestamp": 1724157645000},
+      "parsed": {
+        "amount": "3500.00",
+        "type": "EXPENSE",
+        "merchant": "Indigo",
+        "reference": "987654321099",
+        "accountLast4": null,
+        "balance": null,
+        "creditLimit": null,
+        "smsBody": "Rs 3500.00 debited via UPI on 20-08-2024 12:30:45 to VPA indigo.paytm@hdfcbank.Ref No 987654321099.Small txns?Use UPI Lite!-Federal Bank",
+        "sender": "AD-FEDBNK",
+        "timestamp": 1724157645000,
+        "bankName": "Federal Bank",
+        "transactionId": "f8391bc7aaba719f968a11377c9ccfe5",
+        "isFromCard": false,
+        "currency": "INR",
+        "fromAccount": null,
+        "toAccount": null
+      }
+    },
+  {
+      "sms": {"sender": "HDFCBK", "body": "Sent Rs.15000.00 From HDFC Bank A/C *1234 To TEST MERCHANT PVT LTD On 01/01/26 Ref 567890567890 Not You? Call 18005556789/SMS BLOCK UPI to 7305556789", "timestamp": 1767225600000},
+      "parsed": {
+        "amount": "15000.00",
+        "type": "EXPENSE",
+        "merchant": "TEST MERCHANT",
+        "reference": "567890567890",
+        "accountLast4": "1234",
+        "balance": null,
+        "creditLimit": null,
+        "smsBody": "Sent Rs.15000.00 From HDFC Bank A/C *1234 To TEST MERCHANT PVT LTD On 01/01/26 Ref 567890567890 Not You? Call 18005556789/SMS BLOCK UPI to 7305556789",
+        "sender": "HDFCBK",
+        "timestamp": 1767225600000,
+        "bankName": "HDFC Bank",
+        "transactionId": "2faa2408d04b0440ac4d435b803f1aaa",
+        "isFromCard": false,
+        "currency": "INR",
+        "fromAccount": null,
+        "toAccount": null
+      }
+    },
+  {
+      "sms": {"sender": "VA-CANBNK-S", "body": "An amount of INR 13,30,614.75 has been credited to XXXX6785 on 02/12/2025 towards RTGS by Sender AXIS MUTUAL FUND REDEMPTION PO, IFSC UTIB0000004, Sender A/c XXXX9108, AXIS BANK, MUMBAI BRANCH, UTR UTIBR72025120200011461, Total Avail. Bal INR 2679815.88- Canara Bank", "timestamp": 1764633600000},
+      "parsed": {
+        "amount": "1330614.75",
+        "type": "INCOME",
+        "merchant": "AXIS MUTUAL FUND REDEMPTION PO",
+        "reference": null,
+        "accountLast4": "9108",
+        "balance": "2679815.88",
+        "creditLimit": null,
+        "smsBody": "An amount of INR 13,30,614.75 has been credited to XXXX6785 on 02/12/2025 towards RTGS by Sender AXIS MUTUAL FUND REDEMPTION PO, IFSC UTIB0000004, Sender A/c XXXX9108, AXIS BANK, MUMBAI BRANCH, UTR UTIBR72025120200011461, Total Avail. Bal INR 2679815.88- Canara Bank",
+        "sender": "VA-CANBNK-S",
+        "timestamp": 1764633600000,
+        "bankName": "Canara Bank",
+        "transactionId": "e6f505362c060f1203c3436711c3ce01",
+        "isFromCard": false,
+        "currency": "INR",
+        "fromAccount": null,
+        "toAccount": null
+      }
+    },
+  {
+      "sms": {"sender": "AD-FEDBNK", "body": "Get a pre-approved personal loan up to Rs 5,00,000 instantly! Apply now on FedMobile. T&C apply. -Federal Bank", "timestamp": 1724200000000},
+      "parsed": null
+    },
+  {
+      "sms": {"sender": "AD-FEDBNK", "body": "Rs 150.00 debited via UPI on 15-08-2024 10:30:25 to VPA john.doe123@okbank.Ref No 987654321098.Small txns?Use UPI Lite!-Federal Bank", "timestamp": 1723719025000},
+      "parsed": {
+        "amount": "150.00",
+        "type": "EXPENSE",
+        "merchant": "john.doe123@okbank",
+        "reference": "987654321098",
+        "accountLast4": null,
+        "balance": null,
+        "creditLimit": null,
+        "smsBody": "Rs 150.00 debited via UPI on 15-08-2024 10:30:25 to VPA john.doe123@okbank.Ref No 987654321098.Small txns?Use UPI Lite!-Federal Bank",
+        "sender": "AD-FEDBNK",
+        "timestamp": 1723719025000,
+        "bankName": "Federal Bank",
+        "transactionId": "e508ac7ddbb33a86bdcf009afb2bbc66",
+        "isFromCard": false,
+        "currency": "INR",
+        "fromAccount": null,
+        "toAccount": null
+      }
+    }
+]

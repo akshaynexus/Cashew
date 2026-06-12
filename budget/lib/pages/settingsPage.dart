@@ -22,6 +22,7 @@ import 'package:budget/widgets/exportDB.dart';
 import 'package:budget/widgets/importCSV.dart';
 import 'package:budget/widgets/exportCSV.dart';
 import 'package:budget/pages/autoTransactionsPageEmail.dart';
+import 'package:budget/pages/autoTransactionsPageSms.dart';
 import 'package:budget/pages/activityPage.dart';
 import 'package:budget/pages/editAssociatedTitlesPage.dart';
 import 'package:budget/pages/editBudgetPage.dart';
@@ -578,6 +579,16 @@ class SettingsPageContent extends StatelessWidget {
                     : Icons.mark_email_unread_rounded,
               )
             : SizedBox.shrink(),
+        // SMS capture is Android-only (SMS data is inaccessible elsewhere).
+        getPlatform() == PlatformOS.isAndroid
+            ? SettingsContainerOpenPage(
+                openPage: const AutoTransactionsPageSms(),
+                title: "automatic-sms-transactions".tr(),
+                icon: appStateSettings["outlinedIcons"]
+                    ? Icons.sms_outlined
+                    : Icons.sms_rounded,
+              )
+            : const SizedBox.shrink(),
 
         appStateSettings["notificationScanningDebug"] &&
                 getPlatform(ignoreEmulation: true) == PlatformOS.isAndroid

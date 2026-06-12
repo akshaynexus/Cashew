@@ -1,0 +1,4 @@
+# Pinned source for the vendored PennyWise parser-core.
+# Edit REF and re-run tool/sync_parser_core.sh to update the parser.
+REPO_URL=https://github.com/akshaynexus/pennywiseai-tracker
+REF=0dc05bc497ecc85c96a7b6e0b641e2e4a5c07d32

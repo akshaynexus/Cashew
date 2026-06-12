@@ -11,7 +11,8 @@ import 'package:budget/struct/syncClient.dart';
 import 'package:budget/widgets/navigationFramework.dart';
 import 'package:budget/widgets/periodCyclePicker.dart';
 import 'package:budget/widgets/walletEntry.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'
+    hide Transaction, Expression, Constant, Order;
 import 'dart:async';
 import 'package:async/async.dart';
 import 'package:drift/drift.dart';
@@ -26,7 +27,7 @@ import 'package:budget/pages/activityPage.dart';
 import 'package:flutter/material.dart' show RangeValues;
 part 'tables.g.dart';
 
-int schemaVersionGlobal = 46;
+int schemaVersionGlobal = 47;
 
 // To update and migrate the database, check the README
 
@@ -125,6 +126,7 @@ enum MethodAdded {
   csv,
   preview,
   appLink,
+  parsed,
 }
 
 enum SharedStatus { waiting, shared, error }
@@ -265,6 +267,10 @@ class Wallets extends Table {
       .nullable()
       .withDefault(const Constant(null))
       .map(const HomePageWidgetDisplayListInColumnConverter())();
+  // Maps a bank account (bank name + last 4 digits) to this wallet for SMS
+  // routing and balance reconciliation.
+  TextColumn get bankName => text().nullable()();
+  TextColumn get accountLast4 => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {walletPk};
@@ -334,6 +340,8 @@ class Transactions extends Table {
       text().references(Objectives, #objectivePk).nullable()();
   TextColumn get budgetFksExclude =>
       text().map(const StringListInColumnConverter()).nullable()();
+  // Hash used to dedup captured (parsed) transactions.
+  TextColumn get transactionHash => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {transactionPk};
@@ -672,6 +680,24 @@ class CategoryWithTotal {
 //       transactionType != TransactionSpecialType.debt;
 // }
 
+// LOCAL-ONLY review queue for SMS from known bank senders that the parser
+// could not parse. This table is intentionally NOT wired into syncClient.dart
+// or the DeleteLogs sync machinery — it is device-local only.
+@DataClassName('UnrecognizedSm')
+class UnrecognizedSms extends Table {
+  TextColumn get unrecognizedSmsPk => text().clientDefault(() => uuid.v4())();
+  TextColumn get sender => text()();
+  TextColumn get body => text()();
+  DateTimeColumn get dateCreated =>
+      dateTime().clientDefault(() => new DateTime.now())();
+  DateTimeColumn get dateTimeModified =>
+      dateTime().withDefault(Constant(DateTime.now())).nullable()();
+  BoolColumn get handled => boolean().withDefault(const Constant(false))();
+
+  @override
+  Set<Column> get primaryKey => {unrecognizedSmsPk};
+}
+
 // when adding a new table, make sure to enable syncing and that
 // all relevant delete queries create delete logs
 // Modify processSyncLogs to process the update/creation and delete!
@@ -688,6 +714,7 @@ class CategoryWithTotal {
   ScannerTemplates,
   DeleteLogs,
   Objectives,
+  UnrecognizedSms,
 ])
 class FinanceDatabase extends _$FinanceDatabase {
   // FinanceDatabase() : super(_openConnection());
@@ -1161,6 +1188,38 @@ class FinanceDatabase extends _$FinanceDatabase {
               } catch (e) {
                 print(
                     "Migration Error: Error creating column objectives.type " +
+                        e.toString());
+              }
+            },
+            from46To47: (m, schema) async {
+              print("46 to 47");
+              try {
+                await m.addColumn(schema.transactions,
+                    schema.transactions.transactionHash);
+              } catch (e) {
+                print(
+                    "Migration Error: Error creating column transactions.transactionHash " +
+                        e.toString());
+              }
+              try {
+                await m.addColumn(schema.wallets, schema.wallets.bankName);
+              } catch (e) {
+                print(
+                    "Migration Error: Error creating column wallets.bankName " +
+                        e.toString());
+              }
+              try {
+                await m.addColumn(schema.wallets, schema.wallets.accountLast4);
+              } catch (e) {
+                print(
+                    "Migration Error: Error creating column wallets.accountLast4 " +
+                        e.toString());
+              }
+              try {
+                await m.createTable(schema.unrecognizedSms);
+              } catch (e) {
+                print(
+                    "Migration Error: Error creating table UnrecognizedSms " +
                         e.toString());
               }
             },
@@ -2460,6 +2519,65 @@ class FinanceDatabase extends _$FinanceDatabase {
           ..orderBy([(s) => OrderingTerm.asc(s.dateCreated)])
           ..limit(limit ?? DEFAULT_LIMIT, offset: offset ?? DEFAULT_OFFSET))
         .get();
+  }
+
+  // Returns the first transaction with the given transactionHash, or null.
+  // Used to dedup captured (parsed) transactions.
+  Future<Transaction?> getTransactionByHash(String hash) {
+    return (select(transactions)
+          ..where((t) => t.transactionHash.equals(hash))
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  // Returns the first wallet matching both bankName and accountLast4, or null.
+  // Used for SMS routing and balance reconciliation.
+  Future<TransactionWallet?> getWalletByBankAndLast4(
+      String bankName, String accountLast4) {
+    return (select(wallets)
+          ..where((w) =>
+              w.bankName.equals(bankName) & w.accountLast4.equals(accountLast4))
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  // LOCAL-ONLY review queue (UnrecognizedSms). Not synced.
+  Stream<List<UnrecognizedSm>> watchAllUnrecognizedSms(
+      {int? limit, int? offset}) {
+    return (select(unrecognizedSms)
+          ..orderBy([(s) => OrderingTerm.desc(s.dateCreated)])
+          ..limit(limit ?? DEFAULT_LIMIT, offset: offset ?? DEFAULT_OFFSET))
+        .watch();
+  }
+
+  Future<int> createOrUpdateUnrecognizedSms(UnrecognizedSm entry,
+      {bool insert = false}) {
+    entry = entry.copyWith(dateTimeModified: Value(DateTime.now()));
+    UnrecognizedSmsCompanion companionToInsert = entry.toCompanion(true);
+
+    if (insert) {
+      companionToInsert =
+          companionToInsert.copyWith(unrecognizedSmsPk: Value.absent());
+    }
+
+    return into(unrecognizedSms)
+        .insert((companionToInsert), mode: InsertMode.insertOrReplace);
+  }
+
+  Future<void> deleteUnrecognizedSms(String unrecognizedSmsPk) async {
+    // Local-only table: intentionally does NOT create a delete log for sync.
+    await (delete(unrecognizedSms)
+          ..where((s) => s.unrecognizedSmsPk.equals(unrecognizedSmsPk)))
+        .go();
+  }
+
+  Future<void> markUnrecognizedSmsHandled(String unrecognizedSmsPk) async {
+    await (update(unrecognizedSms)
+          ..where((s) => s.unrecognizedSmsPk.equals(unrecognizedSmsPk)))
+        .write(UnrecognizedSmsCompanion(
+      handled: Value(true),
+      dateTimeModified: Value(DateTime.now()),
+    ));
   }
 
   Future<List<TransactionWallet>> getAllWallets({int? limit, int? offset}) {

@@ -44,10 +44,23 @@ Future<FirebaseFirestore?> firebaseGetDBInstance() async {
       }
       // GoogleSignInAccount? googleUser = googleUser;
 
-      GoogleSignInAuthentication? googleAuth = await googleUser?.authentication;
+      // google_sign_in v7+: `authentication` is synchronous and only exposes
+      // the idToken. The access token (if needed) is obtained from the
+      // authorization client. idToken alone is sufficient for the Firebase
+      // GoogleAuthProvider credential.
+      final GoogleSignInAuthentication? googleAuth = googleUser?.authentication;
+
+      String? accessToken;
+      try {
+        final authorization = await googleUser?.authorizationClient
+            .authorizationForScopes(googleGrantedScopes);
+        accessToken = authorization?.accessToken;
+      } catch (e) {
+        print("Could not obtain Google access token: ${e.toString()}");
+      }
 
       _credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth?.accessToken,
+        accessToken: accessToken,
         idToken: googleAuth?.idToken,
       );
 
