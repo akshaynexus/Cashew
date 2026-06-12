@@ -1,25 +1,10 @@
 group = "com.cashew.pennywise"
 version = "1.0"
 
-buildscript {
-    ext.kotlin_version = "1.9.22"
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath "com.android.tools.build:gradle:8.1.0"
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-    }
-}
-
-rootProject.allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
-
+// No buildscript/AGP pin here: when consumed by a host Flutter app the Android
+// Gradle Plugin + Kotlin plugin are provided by the app's build (all modules
+// must use the same AGP version). The example app supplies them for standalone
+// builds.
 apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
 
