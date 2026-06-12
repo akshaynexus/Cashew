@@ -2267,6 +2267,12 @@ class $TransactionsTable extends Transactions
   late final GeneratedColumn<String> transactionHash = GeneratedColumn<String>(
       'transaction_hash', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _parsedReferenceMeta =
+      const VerificationMeta('parsedReference');
+  @override
+  late final GeneratedColumn<String> parsedReference = GeneratedColumn<String>(
+      'parsed_reference', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         transactionPk,
@@ -2300,7 +2306,8 @@ class $TransactionsTable extends Transactions
         objectiveFk,
         objectiveLoanFk,
         budgetFksExclude,
-        transactionHash
+        transactionHash,
+        parsedReference
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2468,6 +2475,12 @@ class $TransactionsTable extends Transactions
           transactionHash.isAcceptableOrUnknown(
               data['transaction_hash']!, _transactionHashMeta));
     }
+    if (data.containsKey('parsed_reference')) {
+      context.handle(
+          _parsedReferenceMeta,
+          parsedReference.isAcceptableOrUnknown(
+              data['parsed_reference']!, _parsedReferenceMeta));
+    }
     return context;
   }
 
@@ -2551,6 +2564,8 @@ class $TransactionsTable extends Transactions
               data['${effectivePrefix}budget_fks_exclude'])),
       transactionHash: attachedDatabase.typeMapping.read(
           DriftSqlType.string, data['${effectivePrefix}transaction_hash']),
+      parsedReference: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}parsed_reference']),
     );
   }
 
@@ -2617,6 +2632,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
   final String? objectiveLoanFk;
   final List<String>? budgetFksExclude;
   final String? transactionHash;
+  final String? parsedReference;
   const Transaction(
       {required this.transactionPk,
       this.pairedTransactionFk,
@@ -2649,7 +2665,8 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       this.objectiveFk,
       this.objectiveLoanFk,
       this.budgetFksExclude,
-      this.transactionHash});
+      this.transactionHash,
+      this.parsedReference});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -2739,6 +2756,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
     if (!nullToAbsent || transactionHash != null) {
       map['transaction_hash'] = Variable<String>(transactionHash);
     }
+    if (!nullToAbsent || parsedReference != null) {
+      map['parsed_reference'] = Variable<String>(parsedReference);
+    }
     return map;
   }
 
@@ -2821,6 +2841,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       transactionHash: transactionHash == null && nullToAbsent
           ? const Value.absent()
           : Value(transactionHash),
+      parsedReference: parsedReference == null && nullToAbsent
+          ? const Value.absent()
+          : Value(parsedReference),
     );
   }
 
@@ -2873,6 +2896,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       budgetFksExclude:
           serializer.fromJson<List<String>?>(json['budgetFksExclude']),
       transactionHash: serializer.fromJson<String?>(json['transactionHash']),
+      parsedReference: serializer.fromJson<String?>(json['parsedReference']),
     );
   }
   @override
@@ -2920,6 +2944,7 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       'objectiveLoanFk': serializer.toJson<String?>(objectiveLoanFk),
       'budgetFksExclude': serializer.toJson<List<String>?>(budgetFksExclude),
       'transactionHash': serializer.toJson<String?>(transactionHash),
+      'parsedReference': serializer.toJson<String?>(parsedReference),
     };
   }
 
@@ -2955,7 +2980,8 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           Value<String?> objectiveFk = const Value.absent(),
           Value<String?> objectiveLoanFk = const Value.absent(),
           Value<List<String>?> budgetFksExclude = const Value.absent(),
-          Value<String?> transactionHash = const Value.absent()}) =>
+          Value<String?> transactionHash = const Value.absent(),
+          Value<String?> parsedReference = const Value.absent()}) =>
       Transaction(
         transactionPk: transactionPk ?? this.transactionPk,
         pairedTransactionFk: pairedTransactionFk.present
@@ -3018,6 +3044,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
         transactionHash: transactionHash.present
             ? transactionHash.value
             : this.transactionHash,
+        parsedReference: parsedReference.present
+            ? parsedReference.value
+            : this.parsedReference,
       );
   Transaction copyWithCompanion(TransactionsCompanion data) {
     return Transaction(
@@ -3095,6 +3124,9 @@ class Transaction extends DataClass implements Insertable<Transaction> {
       transactionHash: data.transactionHash.present
           ? data.transactionHash.value
           : this.transactionHash,
+      parsedReference: data.parsedReference.present
+          ? data.parsedReference.value
+          : this.parsedReference,
     );
   }
 
@@ -3135,7 +3167,8 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           ..write('objectiveFk: $objectiveFk, ')
           ..write('objectiveLoanFk: $objectiveLoanFk, ')
           ..write('budgetFksExclude: $budgetFksExclude, ')
-          ..write('transactionHash: $transactionHash')
+          ..write('transactionHash: $transactionHash, ')
+          ..write('parsedReference: $parsedReference')
           ..write(')'))
         .toString();
   }
@@ -3173,7 +3206,8 @@ class Transaction extends DataClass implements Insertable<Transaction> {
         objectiveFk,
         objectiveLoanFk,
         budgetFksExclude,
-        transactionHash
+        transactionHash,
+        parsedReference
       ]);
   @override
   bool operator ==(Object other) =>
@@ -3213,7 +3247,8 @@ class Transaction extends DataClass implements Insertable<Transaction> {
           other.objectiveFk == this.objectiveFk &&
           other.objectiveLoanFk == this.objectiveLoanFk &&
           other.budgetFksExclude == this.budgetFksExclude &&
-          other.transactionHash == this.transactionHash);
+          other.transactionHash == this.transactionHash &&
+          other.parsedReference == this.parsedReference);
 }
 
 class TransactionsCompanion extends UpdateCompanion<Transaction> {
@@ -3249,6 +3284,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
   final Value<String?> objectiveLoanFk;
   final Value<List<String>?> budgetFksExclude;
   final Value<String?> transactionHash;
+  final Value<String?> parsedReference;
   final Value<int> rowid;
   const TransactionsCompanion({
     this.transactionPk = const Value.absent(),
@@ -3283,6 +3319,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     this.objectiveLoanFk = const Value.absent(),
     this.budgetFksExclude = const Value.absent(),
     this.transactionHash = const Value.absent(),
+    this.parsedReference = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TransactionsCompanion.insert({
@@ -3318,6 +3355,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     this.objectiveLoanFk = const Value.absent(),
     this.budgetFksExclude = const Value.absent(),
     this.transactionHash = const Value.absent(),
+    this.parsedReference = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : name = Value(name),
         amount = Value(amount),
@@ -3356,6 +3394,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     Expression<String>? objectiveLoanFk,
     Expression<String>? budgetFksExclude,
     Expression<String>? transactionHash,
+    Expression<String>? parsedReference,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3397,6 +3436,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
       if (objectiveLoanFk != null) 'objective_loan_fk': objectiveLoanFk,
       if (budgetFksExclude != null) 'budget_fks_exclude': budgetFksExclude,
       if (transactionHash != null) 'transaction_hash': transactionHash,
+      if (parsedReference != null) 'parsed_reference': parsedReference,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3434,6 +3474,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
       Value<String?>? objectiveLoanFk,
       Value<List<String>?>? budgetFksExclude,
       Value<String?>? transactionHash,
+      Value<String?>? parsedReference,
       Value<int>? rowid}) {
     return TransactionsCompanion(
       transactionPk: transactionPk ?? this.transactionPk,
@@ -3473,6 +3514,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
       objectiveLoanFk: objectiveLoanFk ?? this.objectiveLoanFk,
       budgetFksExclude: budgetFksExclude ?? this.budgetFksExclude,
       transactionHash: transactionHash ?? this.transactionHash,
+      parsedReference: parsedReference ?? this.parsedReference,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3588,6 +3630,9 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
     if (transactionHash.present) {
       map['transaction_hash'] = Variable<String>(transactionHash.value);
     }
+    if (parsedReference.present) {
+      map['parsed_reference'] = Variable<String>(parsedReference.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3632,6 +3677,7 @@ class TransactionsCompanion extends UpdateCompanion<Transaction> {
           ..write('objectiveLoanFk: $objectiveLoanFk, ')
           ..write('budgetFksExclude: $budgetFksExclude, ')
           ..write('transactionHash: $transactionHash, ')
+          ..write('parsedReference: $parsedReference, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -9133,6 +9179,7 @@ typedef $$TransactionsTableCreateCompanionBuilder = TransactionsCompanion
   Value<String?> objectiveLoanFk,
   Value<List<String>?> budgetFksExclude,
   Value<String?> transactionHash,
+  Value<String?> parsedReference,
   Value<int> rowid,
 });
 typedef $$TransactionsTableUpdateCompanionBuilder = TransactionsCompanion
@@ -9169,6 +9216,7 @@ typedef $$TransactionsTableUpdateCompanionBuilder = TransactionsCompanion
   Value<String?> objectiveLoanFk,
   Value<List<String>?> budgetFksExclude,
   Value<String?> transactionHash,
+  Value<String?> parsedReference,
   Value<int> rowid,
 });
 
@@ -9371,6 +9419,10 @@ class $$TransactionsTableFilterComposer
 
   ColumnFilters<String> get transactionHash => $composableBuilder(
       column: $table.transactionHash,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get parsedReference => $composableBuilder(
+      column: $table.parsedReference,
       builder: (column) => ColumnFilters(column));
 
   $$TransactionsTableFilterComposer get pairedTransactionFk {
@@ -9599,6 +9651,10 @@ class $$TransactionsTableOrderingComposer
       column: $table.transactionHash,
       builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get parsedReference => $composableBuilder(
+      column: $table.parsedReference,
+      builder: (column) => ColumnOrderings(column));
+
   $$TransactionsTableOrderingComposer get pairedTransactionFk {
     final $$TransactionsTableOrderingComposer composer = $composerBuilder(
         composer: this,
@@ -9817,6 +9873,9 @@ class $$TransactionsTableAnnotationComposer
   GeneratedColumn<String> get transactionHash => $composableBuilder(
       column: $table.transactionHash, builder: (column) => column);
 
+  GeneratedColumn<String> get parsedReference => $composableBuilder(
+      column: $table.parsedReference, builder: (column) => column);
+
   $$TransactionsTableAnnotationComposer get pairedTransactionFk {
     final $$TransactionsTableAnnotationComposer composer = $composerBuilder(
         composer: this,
@@ -10000,6 +10059,7 @@ class $$TransactionsTableTableManager extends RootTableManager<
             Value<String?> objectiveLoanFk = const Value.absent(),
             Value<List<String>?> budgetFksExclude = const Value.absent(),
             Value<String?> transactionHash = const Value.absent(),
+            Value<String?> parsedReference = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               TransactionsCompanion(
@@ -10035,6 +10095,7 @@ class $$TransactionsTableTableManager extends RootTableManager<
             objectiveLoanFk: objectiveLoanFk,
             budgetFksExclude: budgetFksExclude,
             transactionHash: transactionHash,
+            parsedReference: parsedReference,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -10070,6 +10131,7 @@ class $$TransactionsTableTableManager extends RootTableManager<
             Value<String?> objectiveLoanFk = const Value.absent(),
             Value<List<String>?> budgetFksExclude = const Value.absent(),
             Value<String?> transactionHash = const Value.absent(),
+            Value<String?> parsedReference = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               TransactionsCompanion.insert(
@@ -10105,6 +10167,7 @@ class $$TransactionsTableTableManager extends RootTableManager<
             objectiveLoanFk: objectiveLoanFk,
             budgetFksExclude: budgetFksExclude,
             transactionHash: transactionHash,
+            parsedReference: parsedReference,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

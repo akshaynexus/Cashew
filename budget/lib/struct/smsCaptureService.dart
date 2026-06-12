@@ -19,6 +19,7 @@ class SmsCaptureSummary {
   int unmapped = 0;
   int unrecognized = 0;
   int subscriptions = 0;
+  int enriched = 0;
   int scanned = 0;
 
   void _add(CaptureOutcome outcome) {
@@ -32,6 +33,10 @@ class SmsCaptureSummary {
       case CaptureOutcome.unmapped:
         unmapped++;
         break;
+      case CaptureOutcome.enriched:
+        // An existing transaction's merchant was upgraded in place (no new row).
+        enriched++;
+        break;
     }
   }
 
@@ -39,12 +44,13 @@ class SmsCaptureSummary {
   String toString() =>
       'SmsCaptureSummary(scanned=$scanned, inserted=$inserted, '
       'duplicate=$duplicate, unmapped=$unmapped, subscriptions=$subscriptions, '
-      'unrecognized=$unrecognized)';
+      'enriched=$enriched, unrecognized=$unrecognized)';
 }
 
 final SmsParser _parser = SmsParser();
 final SmsPermissions smsPermissions = SmsPermissions();
 StreamSubscription<RawMessage>? _liveSubscription;
+StreamSubscription<RawMessage>? _notificationSubscription;
 
 /// Whether SMS capture/scanning is available. **Android-only** — SMS inbox and
 /// live SMS are inaccessible on iOS/web/desktop. Overridable in tests.
@@ -103,6 +109,28 @@ Future<void> stopSmsLiveCapture() async {
   _liveSubscription = null;
 }
 
+/// Starts listening for live bank-**app notifications** and capturing them.
+/// Android-only and idempotent. Runs each notification through the SAME path as
+/// live SMS ([_handleLiveMessage]) via the shared parser → capture pipeline.
+///
+/// Requires the user to have granted notification-listener access; the caller is
+/// responsible for checking [SmsPermissions.hasNotificationAccess] before
+/// enabling. Subscribing has no effect if access isn't granted (no events flow).
+void startNotificationCapture() {
+  if (!smsCaptureSupported() || _notificationSubscription != null) return;
+  _notificationSubscription =
+      NotificationCapture().messages.listen(_handleLiveMessage);
+}
+
+/// Stops the notification listener subscription.
+Future<void> stopNotificationCapture() async {
+  await _notificationSubscription?.cancel();
+  _notificationSubscription = null;
+}
+
+/// Source-agnostic handler for a single live [RawMessage] (live SMS OR bank-app
+/// notification): parse → capture; else mandate → capture; else, if a known
+/// sender, enqueue as unrecognized for manual review.
 Future<void> _handleLiveMessage(RawMessage message) async {
   final parsed = await _parser.parse(message);
   if (parsed != null) {
@@ -124,6 +152,14 @@ Future<void> _handleLiveMessage(RawMessage message) async {
 /// arrived while the app was closed.
 Future<void> initSmsCaptureIfEnabled() async {
   if (!smsCaptureSupported()) return;
+
+  // Bank-app notification capture is independent of SMS access: start it if
+  // enabled and notification-listener access is granted.
+  if (appStateSettings["notificationCaptureScanning"] == true &&
+      await smsPermissions.hasNotificationAccess()) {
+    startNotificationCapture();
+  }
+
   if (appStateSettings["smsScanning"] != true) return;
   if (!await smsPermissions.hasSmsPermissions()) return;
 

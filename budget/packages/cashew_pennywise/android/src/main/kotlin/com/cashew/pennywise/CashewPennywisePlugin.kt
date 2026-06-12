@@ -33,6 +33,7 @@ class CashewPennywisePlugin :
 
     private lateinit var channel: MethodChannel
     private lateinit var eventChannel: EventChannel
+    private lateinit var notificationEventChannel: EventChannel
     private lateinit var appContext: Context
 
     // Parsing a full inbox / reading SMS can be thousands of messages; keep it off
@@ -53,11 +54,15 @@ class CashewPennywisePlugin :
         channel.setMethodCallHandler(this)
         eventChannel = EventChannel(binding.binaryMessenger, EVENT_CHANNEL)
         eventChannel.setStreamHandler(SmsLiveStreamHandler(appContext))
+        notificationEventChannel =
+            EventChannel(binding.binaryMessenger, NOTIFICATION_EVENT_CHANNEL)
+        notificationEventChannel.setStreamHandler(NotificationStreamHandler())
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
+        notificationEventChannel.setStreamHandler(null)
     }
 
     // ─── ActivityAware ────────────────────────────────────────────────────────
@@ -195,5 +200,7 @@ class CashewPennywisePlugin :
     companion object {
         private const val CHANNEL = "cashew_pennywise/parser"
         private const val EVENT_CHANNEL = "cashew_pennywise/sms_stream"
+        private const val NOTIFICATION_EVENT_CHANNEL =
+            "cashew_pennywise/notification_stream"
     }
 }

@@ -107,4 +107,179 @@ class CaptureDeduplicator {
     if (da == null || db == null) return false;
     return da == db;
   }
+
+  // ---------------------------------------------------------------------------
+  // Quality-based dedup (ports the parts of `TransactionDeduplication` that pick
+  // a "best" record when the same UPI payment is reported twice — typically by a
+  // partner bank like SBI and the actual account bank).
+  // ---------------------------------------------------------------------------
+
+  static const String _partnerBankName = 'State Bank of India';
+
+  bool _isPartnerBank(String? bankName) =>
+      (bankName ?? '').toLowerCase() == _partnerBankName.toLowerCase();
+
+  /// Ports `shouldReplaceWithIncoming`. Only applies when the two are the same
+  /// UPI transaction. Prefers the non-partner (non-SBI) bank; on a tie, prefers
+  /// the record that carries a balance.
+  bool shouldReplaceWithIncoming(
+    DedupCandidate existing,
+    DedupCandidate incoming,
+  ) {
+    if (!_isSameUpiCandidate(existing, incoming)) return false;
+
+    final existingIsPartner = _isPartnerBank(existing.bankName);
+    final incomingIsPartner = _isPartnerBank(incoming.bankName);
+    if (existingIsPartner && !incomingIsPartner) return true;
+    if (!existingIsPartner && incomingIsPartner) return false;
+
+    return existing.balance == null && incoming.balance != null;
+  }
+
+  /// Ports `duplicateIdsToDelete`. Given persisted candidates, clusters same-UPI
+  /// duplicates and returns the ids to delete, keeping the highest-quality record
+  /// per cluster (non-SBI, has-balance, earliest time, lowest id).
+  List<I> duplicateIdsToDelete<I>(Iterable<DedupCandidate<I>> transactions) {
+    final groups = <String, List<DedupCandidate<I>>>{};
+    for (final t in transactions) {
+      if (!_hasUpiReferenceStr(t.reference)) continue;
+      final key = [
+        t.reference ?? '',
+        _normalizedAmount(t.amount),
+        t.accountLast4 ?? '',
+        t.type.name,
+        t.currency,
+      ].join('|');
+      (groups[key] ??= <DedupCandidate<I>>[]).add(t);
+    }
+
+    final result = <I>[];
+    for (final group in groups.values) {
+      result.addAll(_duplicateIdsFromGroup(group));
+    }
+    return result;
+  }
+
+  List<I> _duplicateIdsFromGroup<I>(List<DedupCandidate<I>> group) {
+    final sorted = [...group]..sort(_byTimeThenId);
+
+    final clusters = <List<DedupCandidate<I>>>[];
+    for (final tx in sorted) {
+      final cluster = clusters.firstWhere(
+        (c) => c.any((prev) => _isSameUpiCandidate(prev, tx)),
+        orElse: () => <DedupCandidate<I>>[],
+      );
+      if (cluster.isEmpty) {
+        clusters.add([tx]);
+      } else {
+        cluster.add(tx);
+      }
+    }
+
+    final ids = <I>[];
+    for (final cluster in clusters) {
+      final keeper = cluster.reduce(
+          (a, b) => _qualityComparator(a, b) <= 0 ? a : b);
+      final toDelete = cluster
+          .where((t) => t.id != keeper.id)
+          .toList()
+        ..sort(_byTimeThenId);
+      ids.addAll(toDelete.map((t) => t.id));
+    }
+    return ids;
+  }
+
+  /// Lower is better. Ports `transactionQualityComparator`: non-SBI first,
+  /// has-balance first, then earliest time, then lowest id.
+  int _qualityComparator(DedupCandidate a, DedupCandidate b) {
+    final ap = _isPartnerBank(a.bankName) ? 1 : 0;
+    final bp = _isPartnerBank(b.bankName) ? 1 : 0;
+    if (ap != bp) return ap - bp;
+
+    final ab = a.balance == null ? 1 : 0;
+    final bb = b.balance == null ? 1 : 0;
+    if (ab != bb) return ab - bb;
+
+    final t = a.timestamp.compareTo(b.timestamp);
+    if (t != 0) return t;
+
+    return _compareIds(a.id, b.id);
+  }
+
+  int _byTimeThenId(DedupCandidate a, DedupCandidate b) {
+    final t = a.timestamp.compareTo(b.timestamp);
+    if (t != 0) return t;
+    return _compareIds(a.id, b.id);
+  }
+
+  int _compareIds(Object? a, Object? b) {
+    if (a is Comparable && b is Comparable) {
+      try {
+        return a.compareTo(b);
+      } catch (_) {
+        return a.toString().compareTo(b.toString());
+      }
+    }
+    return a.toString().compareTo(b.toString());
+  }
+
+  bool _hasUpiReferenceStr(String? ref) =>
+      ref != null && _upiReference.hasMatch(ref);
+
+  bool _isSameUpiCandidate(DedupCandidate a, DedupCandidate b,
+      {Duration window = upiDuplicateWindow}) {
+    if (!_hasUpiReferenceStr(a.reference) ||
+        !_hasUpiReferenceStr(b.reference)) {
+      return false;
+    }
+    if (a.reference != b.reference) return false;
+    if (a.type != b.type) return false;
+    if (a.currency != b.currency) return false;
+    if (!_amountsEqual(a.amount, b.amount)) return false;
+    if (!_accountsMatch(a.accountLast4, b.accountLast4)) return false;
+    final gap = a.timestamp.difference(b.timestamp).abs();
+    return gap <= window;
+  }
+
+  String _normalizedAmount(String amount) {
+    final d = double.tryParse(amount);
+    if (d == null) return amount;
+    // Strip trailing zeros, matching BigDecimal.stripTrailingZeros().
+    var s = d.toString();
+    if (s.contains('.')) {
+      s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    }
+    return s;
+  }
+}
+
+/// A candidate record for quality-based dedup ([CaptureDeduplicator.duplicateIdsToDelete]
+/// / [CaptureDeduplicator.shouldReplaceWithIncoming]). Generic over the id type
+/// [I] (row id, UUID string, etc.). Mirrors the fields of PennyWise's
+/// `TransactionEntity` needed by the dedup quality logic.
+class DedupCandidate<I> {
+  final I id;
+  final String? reference;
+  final String amount;
+  final ParsedTransactionType type;
+  final String currency;
+  final String? accountLast4;
+  final DateTime timestamp;
+  final String? bankName;
+
+  /// Bank-reported running balance after this transaction, if any. Records that
+  /// carry a balance are preferred over those that don't.
+  final num? balance;
+
+  const DedupCandidate({
+    required this.id,
+    required this.reference,
+    required this.amount,
+    required this.type,
+    required this.currency,
+    required this.accountLast4,
+    required this.timestamp,
+    required this.bankName,
+    required this.balance,
+  });
 }

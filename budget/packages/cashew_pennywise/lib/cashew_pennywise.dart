@@ -19,10 +19,12 @@ export 'src/sms_permissions.dart';
 export 'src/sms_inbox.dart';
 export 'src/sms_live.dart';
 export 'src/sms_scanner.dart';
+export 'src/notification_capture.dart';
 
 // Capture logic (dedup + bank-balance reconciliation) — pure, cross-platform.
 export 'src/capture/deduplicator.dart';
 export 'src/capture/balance_reconciler.dart';
+export 'src/capture/transaction_enricher.dart';
 
 // PDF statement import (cross-platform).
 export 'src/pdf/pdf_statement_parser.dart';

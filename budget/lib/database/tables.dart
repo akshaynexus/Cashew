@@ -27,7 +27,7 @@ import 'package:budget/pages/activityPage.dart';
 import 'package:flutter/material.dart' show RangeValues;
 part 'tables.g.dart';
 
-int schemaVersionGlobal = 47;
+int schemaVersionGlobal = 48;
 
 // To update and migrate the database, check the README
 
@@ -342,6 +342,8 @@ class Transactions extends Table {
       text().map(const StringListInColumnConverter()).nullable()();
   // Hash used to dedup captured (parsed) transactions.
   TextColumn get transactionHash => text().nullable()();
+  // UPI reference / RRN from the parser, for reference-based dedup + enrichment.
+  TextColumn get parsedReference => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {transactionPk};
@@ -1220,6 +1222,17 @@ class FinanceDatabase extends _$FinanceDatabase {
               } catch (e) {
                 print(
                     "Migration Error: Error creating table UnrecognizedSms " +
+                        e.toString());
+              }
+            },
+            from47To48: (m, schema) async {
+              print("47 to 48");
+              try {
+                await m.addColumn(schema.transactions,
+                    schema.transactions.parsedReference);
+              } catch (e) {
+                print(
+                    "Migration Error: Error creating column transactions.parsedReference " +
                         e.toString());
               }
             },
@@ -2528,6 +2541,27 @@ class FinanceDatabase extends _$FinanceDatabase {
           ..where((t) => t.transactionHash.equals(hash))
           ..limit(1))
         .getSingleOrNull();
+  }
+
+  /// Parser-captured transaction carrying [reference] (UPI RRN), if any.
+  /// Used for reference-based dedup + statement enrichment.
+  Future<Transaction?> getTransactionByParsedReference(String reference) {
+    return (select(transactions)
+          ..where((t) => t.parsedReference.equals(reference))
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  /// Parser-captured transactions whose dateCreated falls within [start, end].
+  /// Used for cross-source dedup (same payment arriving via SMS + notification).
+  Future<List<Transaction>> getCapturedTransactionsInRange(
+      DateTime start, DateTime end) {
+    return (select(transactions)
+          ..where((t) =>
+              t.methodAdded.equalsValue(MethodAdded.parsed) &
+              t.dateCreated.isBiggerOrEqualValue(start) &
+              t.dateCreated.isSmallerOrEqualValue(end)))
+        .get();
   }
 
   // Returns the first wallet matching both bankName and accountLast4, or null.

@@ -1,8 +1,11 @@
 import 'package:budget/functions.dart';
+import 'package:budget/pages/addTransactionPage.dart';
 import 'package:budget/struct/settings.dart';
 import 'package:budget/struct/smsCaptureService.dart';
 import 'package:budget/widgets/framework/pageFramework.dart';
+import 'package:budget/widgets/framework/popupFramework.dart';
 import 'package:budget/widgets/globalSnackbar.dart';
+import 'package:budget/widgets/openBottomSheet.dart';
 import 'package:budget/widgets/openSnackbar.dart';
 import 'package:budget/widgets/settingsContainers.dart';
 import 'package:budget/widgets/unrecognizedSmsQueue.dart';
@@ -48,6 +51,32 @@ class _AutoTransactionsPageSmsState extends State<AutoTransactionsPageSms> {
     setState(() {});
   }
 
+  Future<void> _onNotificationToggle(bool enabled) async {
+    if (enabled) {
+      final granted = await smsPermissions.hasNotificationAccess();
+      if (!granted) {
+        await smsPermissions.openNotificationAccessSettings();
+        await updateSettings("notificationCaptureScanning", false,
+            updateGlobalState: false);
+        openSnackbar(SnackbarMessage(
+          title: "notification-access-needed".tr(),
+          description: "notification-access-needed-description".tr(),
+          icon: Icons.notifications_off_rounded,
+        ));
+        setState(() {});
+        return;
+      }
+      await updateSettings("notificationCaptureScanning", true,
+          updateGlobalState: false);
+      startNotificationCapture();
+    } else {
+      await updateSettings("notificationCaptureScanning", false,
+          updateGlobalState: false);
+      await stopNotificationCapture();
+    }
+    setState(() {});
+  }
+
   Future<void> _scanNow() async {
     if (_scanning) return;
     setState(() => _scanning = true);
@@ -72,21 +101,57 @@ class _AutoTransactionsPageSmsState extends State<AutoTransactionsPageSms> {
     );
     final path = result?.files.single.path;
     if (path == null) return;
+    await _runPdfImport(path);
+  }
+
+  /// Attempts a statement import. On failure (or an empty result, which usually
+  /// signals a password-protected PDF) prompts the user for a password and
+  /// retries once with [password].
+  Future<void> _runPdfImport(String path, {String? password}) async {
     try {
-      final summary = await importSmsStatement(path);
+      final summary = await importSmsStatement(path, password: password);
+      if (summary.scanned == 0 && password == null) {
+        _promptPdfPassword(path);
+        return;
+      }
       openSnackbar(SnackbarMessage(
         title: "import-complete".tr(),
-        description: "${summary.inserted} added · ${summary.duplicate} "
-            "duplicates",
+        description: "${summary.inserted} added · ${summary.enriched} "
+            "enriched · ${summary.duplicate} duplicates",
         icon: Icons.picture_as_pdf_rounded,
       ));
     } catch (e) {
+      if (password == null) {
+        _promptPdfPassword(path);
+        return;
+      }
       openSnackbar(SnackbarMessage(
         title: "import-failed".tr(),
         description: "could-not-read-pdf".tr(),
         icon: Icons.error_rounded,
       ));
     }
+  }
+
+  void _promptPdfPassword(String path) {
+    openBottomSheet(
+      context,
+      popupWithKeyboard: true,
+      PopupFramework(
+        title: "enter-pdf-password".tr(),
+        subtitle: "enter-pdf-password-description".tr(),
+        child: SelectText(
+          buttonLabel: "import".tr(),
+          icon: Icons.lock_rounded,
+          setSelectedText: (_) {},
+          nextWithInput: (password) async {
+            await _runPdfImport(path, password: password);
+          },
+          placeholder: "password".tr(),
+          autoFocus: true,
+        ),
+      ),
+    );
   }
 
   @override
@@ -102,6 +167,15 @@ class _AutoTransactionsPageSmsState extends State<AutoTransactionsPageSms> {
             icon: Icons.sms_rounded,
             initialValue: enabled,
             onSwitched: _onToggle,
+          ),
+        if (_isAndroid)
+          SettingsContainerSwitch(
+            title: "notification-transactions".tr(),
+            description: "notification-transactions-description".tr(),
+            icon: Icons.notifications_active_rounded,
+            initialValue:
+                appStateSettings["notificationCaptureScanning"] ?? false,
+            onSwitched: _onNotificationToggle,
           ),
         if (_isAndroid && enabled)
           SettingsContainer(

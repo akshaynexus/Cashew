@@ -72,11 +72,18 @@ Legend: ✅ done & verified · 🟡 done, needs runtime/on-device verification �
 - ✅ **Tests pass** (`budget/test/`): `sms_capture_service_test` (scan→capture→auto-enqueue→reconcile), `sms_mandate_test` (mandate→subscription + dedup, via direct call and via scan), `sms_capture_pipeline_test`
 - 🟡 Runtime on real Android device (permission dialog, live delivery, actual inbox) — not yet exercised
 
+### Follow-up batch (workflow — done this pass)
+- ✅ **`NotificationListenerService` wrapper** (Android): native `BankNotificationListenerService` + package allowlist → EventChannel `cashew_pennywise/notification_stream` → `NotificationCapture` → same capture path as live SMS; service `startNotificationCapture()`/`stopNotificationCapture()` + `notificationCaptureScanning` toggle on the SMS page
+- ✅ **Unmatched-merchant → "Other"** category (`kUncategorizedCategoryPk`, income:false, counts in spending) — mirrors PennyWise's "Others" default; no longer hidden in balance-correction cat "0"
+- ✅ **Credit-card reconciliation v2** (`BalanceReconciler`: outstanding negated into wallet-balance convention, grows on spend / shrinks on payment, derive from limits) — **17/17 reconciler tests**
+- ✅ **Password-protected PDF prompt** (retry `importSmsStatement(password:)` via a popup on failure/empty)
+- ✅ **Translations** — new keys added to `translations.csv` + JSON regenerated
+- 🟡 Whole batch verified by `flutter analyze` (0 errors) + plugin 59 tests + Cashew capture tests; the **notification listener / live capture still need on-device runtime verification**
+
+- ✅ **SMS-vs-notification cross-source dedup**: `captureParsedTransaction` now skips a capture whose magnitude + merchant matches an already-captured transaction within ±2 min (`kCrossSourceWindow`), via `getCapturedTransactionsInRange`. Keys on merchant (not wallet) so distinct same-amount payments aren't merged and notification↔SMS routed to different wallets still dedup. **3 tests** (`sms_cross_source_dedup_test`).
+- ✅ **GPay/PhonePe statement enricher + reference dedup** (ported from PennyWise `StatementTransactionEnricher` + `TransactionDeduplication`): schema **v48** adds `Transactions.parsedReference` (UPI RRN) + `getTransactionByParsedReference`. `TransactionEnricher` (generic-merchant set, 5-min match window) + extended `CaptureDeduplicator` (`shouldReplaceWithIncoming`, `duplicateIdsToDelete`). `captureParsedTransaction` now: reference-match → upgrade an existing **generic** merchant ("UPI"/"Google Pay") with the PDF's real merchant in place (`CaptureOutcome.enriched`, no dup) or dedup; plus window-fallback enrichment. So importing a GPay PDF *improves* SMS-captured transactions instead of duplicating them. **Plugin 78 tests**, Cashew `sms_enrichment_test` + full capture suite (9) pass. _Caveat: Cashew has no from/to-account or separate description columns, so only the merchant arm of the enricher is applied; `duplicateIdsToDelete` is ported+tested but not yet invoked as a cleanup pass._
+
 ### Pending / not started
-- ⬜ `NotificationListenerService` wrapper (parse bank-app notifications through the same parser)
-- ⬜ Add the new UI translation keys to `assets/translations/translations.csv` + regen (keys: `automatic-sms-transactions`, `scan-bank-sms`(+`-description`), `scan-inbox-now`(+`-description`), `import-pdf-statement`(+`-description`), `scan-complete`, `import-complete`, `import-failed`, `could-not-read-pdf`, `permission-denied`, `sms-permission-needed`)
-- ⬜ Password-protected PDF prompt (UI for `importSmsStatement(password:)`)
-- ⬜ Product decision: unmatched-merchant captures → balance-correction/uncategorized category vs. skip (email flow skips)
-- ⬜ Credit-card reconciliation (outstanding + `creditLimit`) — reconciler currently v1 (debit/savings)
+- ⬜ On-device runtime verification (permission dialogs, live SMS + notification delivery, real inbox) + `google_sign_in` v7 auth/Drive flow
 
 See [FEATURE_GAP.md](FEATURE_GAP.md) for the PennyWise-vs-Cashew analysis and the prioritized port roadmap.

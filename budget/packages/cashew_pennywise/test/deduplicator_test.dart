@@ -159,4 +159,119 @@ void main() {
       expect(dedup.dropDuplicates(batch), hasLength(2));
     });
   });
+
+  // Ported from PennyWise's `TransactionDeduplicationTest`
+  // (shouldReplaceWithIncoming + duplicateIdsToDelete).
+  DedupCandidate<int> cand({
+    required int id,
+    String amount = '15000.00',
+    String? accountLast4 = '2468',
+    String bankName = 'South Indian Bank',
+    String? reference = '111222333444',
+    DateTime? timestamp,
+    ParsedTransactionType type = ParsedTransactionType.income,
+    String currency = 'INR',
+    num? balance = 34567.67,
+  }) =>
+      DedupCandidate<int>(
+        id: id,
+        amount: amount,
+        accountLast4: accountLast4,
+        bankName: bankName,
+        reference: reference,
+        timestamp: timestamp ?? baseTime,
+        type: type,
+        currency: currency,
+        balance: balance,
+      );
+
+  group('shouldReplaceWithIncoming', () {
+    test('replaces partner-bank (SBI, no balance) with account bank', () {
+      final partner = cand(id: 1, bankName: 'State Bank of India', balance: null);
+      final account = cand(
+          id: 2,
+          bankName: 'South Indian Bank',
+          timestamp: baseTime.add(const Duration(minutes: 2)),
+          balance: 34567.67);
+      expect(dedup.shouldReplaceWithIncoming(partner, account), isTrue);
+    });
+
+    test('does not replace account bank with incoming partner bank', () {
+      final account = cand(id: 1, bankName: 'South Indian Bank', balance: null);
+      final partner = cand(
+          id: 2,
+          bankName: 'State Bank of India',
+          timestamp: baseTime.add(const Duration(minutes: 2)),
+          balance: 34567.67);
+      expect(dedup.shouldReplaceWithIncoming(account, partner), isFalse);
+    });
+
+    test('not same UPI transaction => no replace', () {
+      final a = cand(id: 1, reference: 'ABC123');
+      final b = cand(id: 2, reference: 'ABC123');
+      expect(dedup.shouldReplaceWithIncoming(a, b), isFalse);
+    });
+
+    test('prefers the one with a balance on bank tie', () {
+      final noBal = cand(id: 1, balance: null);
+      final withBal = cand(
+          id: 2, timestamp: baseTime.add(const Duration(minutes: 1)), balance: 99.0);
+      expect(dedup.shouldReplaceWithIncoming(noBal, withBal), isTrue);
+    });
+  });
+
+  group('duplicateIdsToDelete', () {
+    test('keeps earliest transaction per matching time window', () {
+      final transactions = [
+        cand(id: 3, timestamp: baseTime.add(const Duration(minutes: 2))),
+        cand(id: 1, timestamp: baseTime),
+        cand(id: 2, timestamp: baseTime.add(const Duration(minutes: 1))),
+        cand(id: 4, timestamp: baseTime.add(const Duration(minutes: 10))),
+        cand(id: 5, amount: '15001.00'),
+        cand(id: 6, accountLast4: '1357'),
+      ];
+      expect(dedup.duplicateIdsToDelete(transactions)..sort(), [2, 3]);
+    });
+
+    test('catches duplicate across midnight within matching window', () {
+      final beforeMidnight = DateTime(2025, 12, 26, 23, 59, 0);
+      final transactions = [
+        cand(id: 1, timestamp: beforeMidnight),
+        cand(id: 2, timestamp: beforeMidnight.add(const Duration(minutes: 2))),
+      ];
+      expect(dedup.duplicateIdsToDelete(transactions), [2]);
+    });
+
+    test('keeps account bank over earlier partner bank duplicate', () {
+      final transactions = [
+        cand(
+            id: 1,
+            bankName: 'State Bank of India',
+            timestamp: baseTime,
+            balance: null),
+        cand(
+            id: 2,
+            bankName: 'South Indian Bank',
+            timestamp: baseTime.add(const Duration(minutes: 2)),
+            balance: 34567.67),
+      ];
+      expect(dedup.duplicateIdsToDelete(transactions), [1]);
+    });
+
+    test('keeps balance-bearing transaction when bank priority is equal', () {
+      final transactions = [
+        cand(
+            id: 1,
+            bankName: 'South Indian Bank',
+            timestamp: baseTime,
+            balance: null),
+        cand(
+            id: 2,
+            bankName: 'South Indian Bank',
+            timestamp: baseTime.add(const Duration(minutes: 1)),
+            balance: 34567.67),
+      ];
+      expect(dedup.duplicateIdsToDelete(transactions), [1]);
+    });
+  });
 }

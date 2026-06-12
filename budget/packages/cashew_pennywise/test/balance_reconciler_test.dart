@@ -137,17 +137,59 @@ void main() {
     });
   });
 
+  // For credit cards the authoritative balance is expressed in Cashew's
+  // wallet-balance convention: outstanding is stored as a NEGATIVE wallet
+  // balance (spend pushes it more negative; payment pulls it toward zero).
   group('credit card outstanding', () {
-    test('credit spend grows outstanding (previous + amount)', () {
+    test('reported balance on a card is outstanding -> negated for the wallet',
+        () {
+      final r = reconciler.reconcile(
+        reportedBalance: 4500, // outstanding stated by the bank
+        computedBalance: -4000, // Cashew currently thinks -4000
+        type: ParsedTransactionType.expense,
+        isFromCard: true,
+        amount: 500,
+      );
+      expect(r.usedReportedBalance, isTrue);
+      // wallet balance should be -outstanding = -4500
+      expect(r.authoritativeBalance, -4500);
+      expect(r.needsCorrection, isTrue);
+      expect(r.correctionDelta, closeTo(-500, 1e-9));
+    });
+
+    test('reported zero outstanding -> wallet balance zero (paid off)', () {
+      final r = reconciler.reconcile(
+        reportedBalance: 0,
+        computedBalance: -1200,
+        type: ParsedTransactionType.income,
+        isFromCard: true,
+        amount: 1200,
+      );
+      expect(r.authoritativeBalance, 0);
+      expect(r.correctionDelta, closeTo(1200, 1e-9));
+    });
+
+    test('type credit (no isFromCard) is still treated as a credit card', () {
+      final r = reconciler.reconcile(
+        reportedBalance: 3000,
+        computedBalance: 0,
+        type: ParsedTransactionType.credit,
+        isFromCard: false,
+      );
+      expect(r.authoritativeBalance, -3000);
+    });
+
+    test('credit spend grows outstanding (previous + amount), negated', () {
       final r = reconciler.reconcile(
         reportedBalance: null,
         computedBalance: 0,
         type: ParsedTransactionType.credit,
         isFromCard: true,
-        previousBalance: 2000,
+        previousBalance: -2000, // wallet convention: -outstanding(2000)
         amount: 500,
       );
-      expect(r.authoritativeBalance, 2500);
+      // outstanding 2000 + 500 = 2500 -> wallet -2500
+      expect(r.authoritativeBalance, -2500);
     });
 
     test('income onto a card shrinks outstanding (clamped at zero)', () {
@@ -156,9 +198,10 @@ void main() {
         computedBalance: 0,
         type: ParsedTransactionType.income,
         isFromCard: true,
-        previousBalance: 300,
+        previousBalance: -300, // outstanding 300
         amount: 500,
       );
+      // outstanding max(300-500,0)=0 -> wallet 0
       expect(r.authoritativeBalance, 0);
     });
 
@@ -168,10 +211,25 @@ void main() {
         computedBalance: 0,
         type: ParsedTransactionType.income,
         isFromCard: true,
-        previousBalance: 2000,
+        previousBalance: -2000, // outstanding 2000
         amount: 500,
       );
-      expect(r.authoritativeBalance, 1500);
+      // outstanding 2000-500=1500 -> wallet -1500
+      expect(r.authoritativeBalance, -1500);
+    });
+
+    test('outstanding derived from available + total credit limit', () {
+      final r = reconciler.reconcile(
+        reportedBalance: null,
+        computedBalance: 0,
+        type: ParsedTransactionType.expense,
+        isFromCard: true,
+        creditLimit: 70000, // available
+        totalCreditLimit: 100000, // total
+        amount: 0,
+      );
+      // outstanding = 100000 - 70000 = 30000 -> wallet -30000
+      expect(r.authoritativeBalance, -30000);
     });
   });
 }

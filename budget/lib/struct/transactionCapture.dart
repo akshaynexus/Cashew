@@ -11,13 +11,16 @@
 // plugin (CaptureDeduplicator / BalanceReconciler); this file only wires them
 // to the global `database` and Cashew's insert/correction primitives.
 
+import 'package:budget/colors.dart';
 import 'package:budget/database/tables.dart';
 import 'package:budget/pages/addTransactionPage.dart';
 import 'package:budget/pages/addWalletPage.dart';
 import 'package:budget/struct/databaseGlobal.dart';
 import 'package:budget/struct/settings.dart';
 import 'package:cashew_pennywise/src/capture/balance_reconciler.dart';
+import 'package:cashew_pennywise/src/capture/transaction_enricher.dart';
 import 'package:cashew_pennywise/src/parsed_transaction.dart';
+import 'package:flutter/material.dart';
 
 /// What happened when a parsed transaction was handed to [captureParsedTransaction].
 enum CaptureOutcome {
@@ -30,6 +33,11 @@ enum CaptureOutcome {
   /// Skipped: no wallet and no fallback wallet, or no category could be
   /// resolved, so nothing was inserted.
   unmapped,
+
+  /// An existing transaction's merchant name was upgraded from the incoming
+  /// (e.g. a GPay PDF row carrying the real merchant for an SMS-captured "UPI"
+  /// payment). No new row was inserted.
+  enriched,
 }
 
 /// Result of a capture attempt.
@@ -61,7 +69,132 @@ class TransactionCaptureResult {
 /// reconcile can find and replace the previous one (avoiding correction spam).
 const String kReconcileMarker = "[auto-balance-sync]";
 
+/// Window for cross-source (SMS vs notification) duplicate matching, mirroring
+/// PennyWise's ±2-minute amount+bank match in its native notification listener.
+const Duration kCrossSourceWindow = Duration(minutes: 2);
+
+/// True if [parsed] looks like the same payment as an already-captured
+/// transaction arriving via the other channel (SMS↔notification): same
+/// magnitude AND same merchant within [kCrossSourceWindow].
+///
+/// We key on merchant (not wallet): a notification often lacks the account
+/// number and routes to a different wallet than the SMS, and matching on
+/// wallet+amount alone would wrongly merge two distinct same-amount payments
+/// to the same account. Merchant+amount+window is the reliable shared signal.
+Future<bool> _isCrossSourceDuplicate(ParsedTransaction parsed) async {
+  final double magnitude = parsed.signedAmount.abs();
+  final String merchant = (parsed.merchant ?? "").trim().toLowerCase();
+  if (magnitude <= 0 || merchant.isEmpty) return false;
+
+  final near = await database.getCapturedTransactionsInRange(
+    parsed.timestamp.subtract(kCrossSourceWindow),
+    parsed.timestamp.add(kCrossSourceWindow),
+  );
+
+  for (final t in near) {
+    if ((t.amount.abs() - magnitude).abs() > 0.001) continue;
+    if (t.name.trim().toLowerCase() == merchant) return true;
+  }
+  return false;
+}
+
 const BalanceReconciler _reconciler = BalanceReconciler();
+const TransactionEnricher _enricher = TransactionEnricher();
+
+/// Matches a 12-digit UPI RRN — the reference key used for reference-based
+/// enrichment (a PDF statement row and the original SMS share this).
+final RegExp _upiReferencePattern = RegExp(r'^\d{12}$');
+
+/// Maps the incoming [parsed] transaction to a statement [EnrichCandidate].
+EnrichCandidate _statementCandidate(ParsedTransaction parsed) => EnrichCandidate(
+      amount: parsed.signedAmount.abs(),
+      currency: parsed.currency,
+      type: parsed.type,
+      reference: parsed.reference,
+      merchant: parsed.merchant,
+      accountLast4: parsed.accountLast4,
+      timestamp: parsed.timestamp,
+    );
+
+/// Maps an already-captured Cashew [existing] transaction to an [EnrichCandidate].
+/// Looks up the existing transaction's wallet to recover its account last4.
+Future<EnrichCandidate> _existingCandidate(
+  Transaction existing,
+  ParsedTransaction parsed,
+) async {
+  final wallet = await database.getWalletInstanceOrNull(existing.walletFk);
+  return EnrichCandidate(
+    amount: existing.amount.abs(),
+    // Cashew stores a single per-wallet currency; reconcile against the
+    // incoming currency so the comparison isn't tripped by an unknown existing
+    // currency. The reference/account match already anchors identity.
+    currency: parsed.currency,
+    type: existing.income
+        ? ParsedTransactionType.income
+        : ParsedTransactionType.expense,
+    reference: existing.parsedReference,
+    merchant: existing.name,
+    accountLast4: wallet?.accountLast4,
+    timestamp: existing.dateCreated,
+  );
+}
+
+/// Updates [existing]'s merchant name to [newName], preserving its primary key.
+Future<void> _updateMerchant(Transaction existing, String newName) async {
+  await database.createOrUpdateTransaction(
+    insert: false,
+    existing.copyWith(name: newName),
+  );
+}
+
+/// Reference-based enrichment/dedup. If [parsed] carries a 12-digit UPI ref that
+/// already maps to a captured transaction, either enrich that transaction's
+/// merchant (returning [CaptureOutcome.enriched]) or treat it as a duplicate
+/// ([CaptureOutcome.duplicate]). Returns null if no reference match applies.
+Future<CaptureOutcome?> _tryReferenceEnrichment(ParsedTransaction parsed) async {
+  final ref = parsed.reference;
+  if (ref == null || !_upiReferencePattern.hasMatch(ref)) return null;
+
+  final existing = await database.getTransactionByParsedReference(ref);
+  if (existing == null) return null;
+
+  final existingCand = await _existingCandidate(existing, parsed);
+  final statementCand = _statementCandidate(parsed);
+  final better = _enricher.enrichedMerchant(existingCand, statementCand);
+  if (better != null) {
+    await _updateMerchant(existing, better);
+    return CaptureOutcome.enriched;
+  }
+  return CaptureOutcome.duplicate;
+}
+
+/// Window-based enrichment: scan captured transactions within ±[kEnrichMatchWindow]
+/// and, if one matches by the loose fallback rule and is enrichable from
+/// [parsed]'s (non-generic) merchant, upgrade it. Returns true if it enriched.
+Future<bool> _tryWindowEnrichment(ParsedTransaction parsed) async {
+  final statementCand = _statementCandidate(parsed);
+  // A generic incoming merchant can't enrich anything.
+  if (_enricher.isGeneric((parsed.merchant ?? '').trim())) return false;
+
+  final near = await database.getCapturedTransactionsInRange(
+    parsed.timestamp.subtract(kEnrichMatchWindow),
+    parsed.timestamp.add(kEnrichMatchWindow),
+  );
+  for (final existing in near) {
+    final existingCand = await _existingCandidate(existing, parsed);
+    final matches = _enricher.isFallbackStatementMatch(
+            existingCand, statementCand) ||
+        _enricher.isAmountDateFallbackEnrichmentCandidate(
+            existingCand, statementCand);
+    if (!matches) continue;
+    final better = _enricher.enrichedMerchant(existingCand, statementCand);
+    if (better != null) {
+      await _updateMerchant(existing, better);
+      return true;
+    }
+  }
+  return false;
+}
 
 /// Captures a [parsed] bank transaction into Cashew.
 ///
@@ -87,6 +220,14 @@ Future<TransactionCaptureResult> captureParsedTransaction(
     }
   }
 
+  // 1b. Reference-based enrich/dedup. If this UPI ref already maps to a captured
+  //     transaction, either enrich its merchant or treat it as a duplicate.
+  //     Either way, nothing new is inserted.
+  final refOutcome = await _tryReferenceEnrichment(parsed);
+  if (refOutcome != null) {
+    return TransactionCaptureResult(outcome: refOutcome);
+  }
+
   // 2. Resolve the wallet. matchedByLast4 gates reconciliation: we only trust
   //    a reported balance against a wallet we actually identified by account.
   TransactionWallet? wallet;
@@ -104,6 +245,21 @@ Future<TransactionCaptureResult> captureParsedTransaction(
   }
   if (wallet == null) {
     return const TransactionCaptureResult(outcome: CaptureOutcome.unmapped);
+  }
+
+  // 2b. Cross-source dedup. The same payment can arrive via BOTH an SMS and a
+  //     bank-app notification; their bodies differ, so the hash check (step 1)
+  //     misses it. Treat it as a duplicate if a recently-captured transaction
+  //     has the same magnitude within ±2 min AND shares the wallet or merchant
+  //     (the guard prevents merging two genuinely distinct same-amount txns).
+  // 2b-i. First try to ENRICH an in-window candidate from this (non-generic)
+  //       merchant before deciding it's a duplicate. This upgrades a generic
+  //       "UPI" capture to a real merchant without inserting a new row.
+  if (await _tryWindowEnrichment(parsed)) {
+    return const TransactionCaptureResult(outcome: CaptureOutcome.enriched);
+  }
+  if (await _isCrossSourceDuplicate(parsed)) {
+    return const TransactionCaptureResult(outcome: CaptureOutcome.duplicate);
   }
 
   // 3. Resolve a category from the merchant; else fall back to default ("0").
@@ -154,6 +310,7 @@ Future<TransactionCaptureResult> captureParsedTransaction(
       methodAdded: MethodAdded.parsed,
       transactionHash:
           parsed.transactionId.isNotEmpty ? parsed.transactionId : null,
+      parsedReference: parsed.reference,
     ),
   );
 
@@ -163,7 +320,10 @@ Future<TransactionCaptureResult> captureParsedTransaction(
     insertedPk = inserted.transactionPk;
   }
 
-  // 5. Reconcile the bank-reported balance, if we trust the routing.
+  // 5. Reconcile the bank-reported balance, if we trust the routing. The
+  //    reconciler branches on isFromCard: for a credit card the reported
+  //    balance is the OUTSTANDING amount and is negated into Cashew's
+  //    wallet-balance convention; for debit/savings it is used directly.
   String? correctionPk;
   if (reconcileBalance && matchedByLast4 && parsed.balance != null) {
     correctionPk = await _reconcileWalletBalance(wallet, parsed);
@@ -189,6 +349,12 @@ Future<String?> _reconcileWalletBalance(
   ParsedTransaction parsed,
 ) async {
   final reported = double.tryParse(parsed.balance ?? "");
+  // We reconcile against an authoritative balance. For both debit/savings and
+  // credit cards that means an explicitly reported balance: for a card the
+  // reported balance IS the outstanding amount (the reconciler negates it into
+  // Cashew's wallet-balance convention). We do not derive outstanding from
+  // creditLimit alone here because the card's *total* sanctioned limit is not
+  // available from the wallet, so available-limit alone can't yield outstanding.
   if (reported == null) return null;
 
   // Reuse Cashew's existing wallet-balance query (the same SUM used across the
@@ -232,13 +398,55 @@ Future<void> _deletePreviousReconcileCorrections(String walletPk) async {
   }
 }
 
-/// The default / uncategorized category (pk "0"), creating it if missing.
-/// Reuses the wallet page's `initializeBalanceCorrectionCategory`, which is the
-/// canonical "ensure category 0 exists" primitive in Cashew. Returns null only
-/// if that fails unexpectedly, in which case the capture is reported unmapped.
+/// Stable primary key for the "Other / Uncategorized" expense category that
+/// captured transactions with no merchant mapping fall into.
+///
+/// IMPORTANT: this is deliberately NOT pk "0" — pk "0" is Cashew's
+/// balance-correction category, which is *excluded* from spending totals. A
+/// captured bank transaction whose merchant we couldn't map is still a real
+/// expense and must COUNT, so it routes here (income:false, a normal category).
+///
+/// This mirrors PennyWise, which assigns an "Others" / "Uncategorized" category
+/// to transactions with no merchant mapping (see
+/// `ui/icons/CategoryMapping.kt` "Others" and AnalyticsViewModel's
+/// `category.ifEmpty { "Others" }`).
+const String kUncategorizedCategoryPk = "uncategorized";
+
+/// The default / uncategorized category for unmatched merchants.
+///
+/// Ensures a stable, real expense category (`kUncategorizedCategoryPk`,
+/// income:false) exists and returns it. Reused across SMS / PDF / mandate
+/// capture. Unlike the balance-correction category ("0"), this one is counted
+/// in spending totals. Returns null only if creation fails unexpectedly, in
+/// which case the capture is reported unmapped.
 Future<TransactionCategory?> _defaultCategory() async {
   try {
-    return await initializeBalanceCorrectionCategory();
+    final existing =
+        await database.getCategoryInstanceOrNull(kUncategorizedCategoryPk);
+    if (existing != null) return existing;
+
+    final int numberOfCategories =
+        (await database.getTotalCountOfCategories())[0] ?? 0;
+    await database.createOrUpdateCategory(
+      // insert:false = upsert that PRESERVES the provided pk (insert:true would
+      // generate a fresh UUID, leaving the lookup below to fail). Mirrors
+      // initializeBalanceCorrectionCategory.
+      insert: false,
+      updateSharedEntry: false,
+      TransactionCategory(
+        categoryPk: kUncategorizedCategoryPk,
+        // No dedicated translation key yet; "Other" reads sensibly and the
+        // user can rename it. PennyWise uses the literal "Others".
+        name: "Other",
+        colour: toHexString(Colors.blueGrey),
+        iconName: "box.png",
+        dateCreated: DateTime.now(),
+        dateTimeModified: null,
+        order: numberOfCategories,
+        income: false,
+      ),
+    );
+    return await database.getCategoryInstanceOrNull(kUncategorizedCategoryPk);
   } catch (_) {
     return null;
   }

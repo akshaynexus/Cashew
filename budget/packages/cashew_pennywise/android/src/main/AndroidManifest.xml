@@ -26,5 +26,21 @@
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
+
+        <!-- Bank-app notification listener. Forwards allowlisted bank
+             notifications to Dart via the cashew_pennywise/notification_stream
+             EventChannel. Requires the user to grant notification access in
+             system settings (deep-linked via openNotificationAccessSettings).
+             BIND_NOTIFICATION_LISTENER_SERVICE must be enforced so only the
+             system can bind. -->
+        <service
+            android:name="com.cashew.pennywise.BankNotificationListenerService"
+            android:exported="true"
+            android:label="Cashew bank notifications"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>
