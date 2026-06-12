@@ -39,3 +39,38 @@ dependencies {
     // NotificationManagerCompat (notification-listener access status).
     implementation "androidx.core:core-ktx:1.12.0"
 }
+
+// ── Auto-vendor PennyWise parser-core ───────────────────────────────────────
+// vendor/parser-core/kotlin is git-ignored and populated by
+// tool/sync_parser_core.sh. A fresh checkout that never ran the script would
+// have an empty source set and fail to compile the Kotlin bridge. Run the sync
+// automatically when the vendor dir is missing/empty, before anything compiles,
+// so the build never breaks on an un-synced vendor. (No-op once vendored —
+// `flutter clean` does not delete vendor/, so this only runs on fresh checkouts
+// or after an explicit clean of the vendor dir.)
+def vendorKotlinDir = file("vendor/parser-core/kotlin")
+def syncScript = file("../tool/sync_parser_core.sh")
+
+def syncParserCore = tasks.register("syncParserCore", Exec) {
+    description = "Vendors PennyWise parser-core if missing (tool/sync_parser_core.sh)."
+    onlyIf {
+        !vendorKotlinDir.exists() || (vendorKotlinDir.listFiles()?.size() ?: 0) == 0
+    }
+    doFirst {
+        if (!syncScript.exists()) {
+            throw new GradleException(
+                "cashew_pennywise: ${syncScript} not found; cannot vendor parser-core. " +
+                "Run it manually: bash packages/cashew_pennywise/tool/sync_parser_core.sh")
+        }
+        logger.lifecycle("cashew_pennywise: vendoring parser-core (vendor dir is missing)…")
+    }
+    // Requires `bash` + `git` on PATH (Linux/macOS, or Git Bash/WSL on Windows).
+    commandLine "bash", syncScript.absolutePath
+}
+
+// Run the sync before the module's build is assembled / compiled.
+tasks.matching {
+    it.name == "preBuild" || (it.name.startsWith("compile") && it.name.endsWith("Kotlin"))
+}.configureEach {
+    dependsOn(syncParserCore)
+}

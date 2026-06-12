@@ -30,7 +30,12 @@ The script sparse-clones the pinned commit, copies `parser-core/src` into
 into `tool/reference/` (read-only reference for the Dart PDF port), and stamps
 the resolved SHA back into `tool/parser_core.lock`.
 
-**Run it once after a fresh checkout**, before building.
+**You normally don't need to run it manually:** the plugin's `android/build.gradle`
+registers a `syncParserCore` task that runs this script automatically before the
+module compiles **if** `android/vendor/parser-core/kotlin` is missing/empty — so a
+fresh checkout builds without a broken vendor. (Requires `bash` + `git` on PATH;
+on Windows use Git Bash/WSL, or run the script manually.) Run it by hand only to
+**update** to a newer upstream ref.
 
 ## Status / TODO
 
